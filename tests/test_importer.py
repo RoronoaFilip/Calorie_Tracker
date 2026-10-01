@@ -76,14 +76,25 @@ class CsvFoodImporterTests(unittest.TestCase):
         with self.assertRaisesRegex(ImportFormatError, "protein / 100g"):
             self.importer.preview(path)
 
-    def test_cocoa_recipe_source_row_is_not_imported_as_a_duplicate_basic_food(self):
-        path = write_csv(self.temp_dir.name, [row("Cocoa Ice Cream")])
+    def test_ice_cream_rows_are_excluded_from_basic_food_import(self):
+        path = write_csv(self.temp_dir.name, [row("Cocoa Ice Cream"), row("Vanilla ice cream")])
 
         preview = self.importer.preview(path)
 
         self.assertEqual(preview.report.importable, 0)
-        self.assertEqual(preview.report.recipe_source_rows, 1)
+        self.assertEqual(preview.report.excluded_ice_cream_rows, 2)
         self.assertEqual(self.importer.apply(preview).imported, 0)
+
+    def test_verified_project_source_previews_26_basic_foods_and_excludes_both_ice_creams(self):
+        source = Path(__file__).resolve().parents[1] / "macros_base - All Foods.csv"
+
+        preview = self.importer.preview(source)
+
+        self.assertEqual(preview.report.rows_read, 28)
+        self.assertEqual(preview.report.importable, 26)
+        self.assertEqual(preview.report.excluded_ice_cream_rows, 2)
+        chia = next(item.food for item in preview.foods if item.food.name == "Chia seeds")
+        self.assertEqual(chia.nutrients_per_100g.calories, Decimal("452.00"))
 
     def test_apply_is_idempotent_and_never_overwrites_a_user_food(self):
         path = write_csv(self.temp_dir.name, [row("Apple")])

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient, preview_recipe
-from calorie_tracker.infrastructure.source_map import COCOA_ICE_CREAM, CSV_HEADER_ROW, FOOD_NAME_HEADER, NUTRIENT_HEADERS
+from calorie_tracker.infrastructure.source_map import CSV_HEADER_ROW, EXCLUDED_ICE_CREAM_NAMES, FOOD_NAME_HEADER, NUTRIENT_HEADERS
 
 
 class NutritionTests(unittest.TestCase):
@@ -84,16 +84,8 @@ class VerifiedSourceMapTests(unittest.TestCase):
         })
         self.assertTrue(all(header.endswith("/ 100g") for header in NUTRIENT_HEADERS.values()))
 
-    def test_cocoa_recipe_uses_only_the_verified_workbook_ingredients_and_yield(self):
-        self.assertEqual(COCOA_ICE_CREAM.name, "Cocoa Ice Cream")
-        self.assertEqual(COCOA_ICE_CREAM.yield_g, Decimal("652"))
-        self.assertEqual(dict(COCOA_ICE_CREAM.ingredients), {
-            "Coconut milk": Decimal("300"),
-            "Verea yellow low fat milk": Decimal("300"),
-            "Cocoa powder": Decimal("15"),
-            "Cacao protein": Decimal("30"),
-            "PB2 powder": Decimal("7"),
-        })
+    def test_ice_cream_source_rows_are_excluded_from_basic_food_seeding(self):
+        self.assertEqual(EXCLUDED_ICE_CREAM_NAMES, {"cocoa ice cream", "vanilla ice cream"})
 
 
 if __name__ == "__main__":

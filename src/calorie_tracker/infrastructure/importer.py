@@ -7,7 +7,7 @@ import uuid
 from calorie_tracker.domain.nutrition import Nutrients, ZERO
 from calorie_tracker.domain.recipes import Food
 from .repositories import FoodRepository
-from .source_map import CSV_HEADER_ROW, FOOD_NAME_HEADER, NUTRIENT_HEADERS, WORKBOOK_RECIPE_NAMES
+from .source_map import CSV_HEADER_ROW, EXCLUDED_ICE_CREAM_NAMES, FOOD_NAME_HEADER, NUTRIENT_HEADERS
 
 
 class ImportFormatError(ValueError):
@@ -28,7 +28,7 @@ class ImportReport:
     duplicate_names: int
     blank_names: int
     malformed_rows: int
-    recipe_source_rows: int
+    excluded_ice_cream_rows: int
     ignored_headers: tuple[str, ...]
     row_errors: tuple[str, ...]
 
@@ -65,7 +65,7 @@ class CsvFoodImporter:
         foods: list[ImportFood] = []
         errors: list[str] = []
         seen_names: set[str] = set()
-        duplicates = blank_names = malformed = recipe_source_rows = rows_read = 0
+        duplicates = blank_names = malformed = excluded_ice_cream_rows = rows_read = 0
         for source_row, values in enumerate(rows[CSV_HEADER_ROW + 1:], start=CSV_HEADER_ROW + 2):
             if not values or not any(value.strip() for value in values):
                 continue
@@ -79,8 +79,8 @@ class CsvFoodImporter:
                 duplicates += 1
                 continue
             seen_names.add(normalized)
-            if normalized in WORKBOOK_RECIPE_NAMES:
-                recipe_source_rows += 1
+            if normalized in EXCLUDED_ICE_CREAM_NAMES:
+                excluded_ice_cream_rows += 1
                 continue
             nutrients: dict[str, Decimal] = {}
             row_error: str | None = None
@@ -106,7 +106,7 @@ class CsvFoodImporter:
             ))
         report = ImportReport(
             rows_read, len(foods), duplicates, blank_names, malformed,
-            recipe_source_rows, ignored, tuple(errors)
+            excluded_ice_cream_rows, ignored, tuple(errors)
         )
         return ImportPreview(tuple(foods), report)
 
