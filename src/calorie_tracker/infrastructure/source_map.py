@@ -17,6 +17,8 @@ NUTRIENT_HEADERS = {
     "omega_6": "omega-6 / 100g",
 }
 
+WORKBOOK_RECIPE_NAMES = frozenset({"cocoa ice cream"})
+
 
 @dataclass(frozen=True)
 class RecipeSeed:
