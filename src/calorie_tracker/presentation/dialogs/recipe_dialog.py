@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -69,7 +70,14 @@ class RecipeDialog(QDialog):
 
         self.ingredient_table = QTableWidget(0, 3)
         self.ingredient_table.setHorizontalHeaderLabels(["Basic food", "Amount", "Remove"])
-        self.ingredient_table.horizontalHeader().setStretchLastSection(False)
+        self.ingredient_table.setMinimumHeight(210)
+        self.ingredient_table.verticalHeader().setVisible(False)
+        header = self.ingredient_table.horizontalHeader()
+        header.setMinimumHeight(36)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.ingredient_table.setColumnWidth(2, 116)
         self.ingredient_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.ingredient_table.setAccessibleName("Recipe ingredients")
         outer.addWidget(self.ingredient_table)
@@ -128,10 +136,12 @@ class RecipeDialog(QDialog):
             self.ingredient_table.setItem(index, 0, QTableWidgetItem(ingredient.food.name))
             self.ingredient_table.setItem(index, 1, QTableWidgetItem(f"{ingredient.amount_g:g} g"))
             remove = QPushButton("Remove")
+            remove.setObjectName("recipeRemoveButton")
             remove.setAccessibleName(f"Remove {ingredient.food.name}")
             remove.setToolTip(f"Remove {ingredient.food.name} from the recipe")
             remove.clicked.connect(lambda checked=False, row=index: self._remove_ingredient(row))
             self.ingredient_table.setCellWidget(index, 2, remove)
+            self.ingredient_table.setRowHeight(index, 40)
 
     def _refresh_validation(self) -> None:
         preview = self.catalogue.validate_recipe(self._draft(), editing_id=self.recipe_id)

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from calorie_tracker.bootstrap import ApplicationServices
+from calorie_tracker.presentation.control_styles import style_calendar_arrows
 
 
 class DiaryCalendarWidget(QCalendarWidget):
@@ -52,6 +53,7 @@ class CalendarView(QWidget):
         controls.addWidget(today)
         layout.addLayout(controls)
         self.calendar = DiaryCalendarWidget()
+        style_calendar_arrows(self.calendar)
         self.calendar.setGridVisible(False)
         self.calendar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)

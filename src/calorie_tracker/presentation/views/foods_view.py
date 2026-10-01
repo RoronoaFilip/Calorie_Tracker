@@ -44,7 +44,7 @@ class FoodsView(QWidget):
         self.add_food_button.setObjectName("primaryButton")
         self.create_recipe_button = QPushButton("Create recipe")
         self.create_recipe_button.setObjectName("primaryButton")
-        self.import_button = QPushButton("Preview CSV import")
+        self.import_button = QPushButton("CSV Import")
         self.add_food_button.clicked.connect(self._add_food)
         self.create_recipe_button.clicked.connect(self._create_recipe)
         self.import_button.clicked.connect(self._choose_import)
@@ -66,22 +66,10 @@ class FoodsView(QWidget):
 
         self.items = QListWidget()
         self.items.setAccessibleName("Food and recipe catalogue")
+        self.items.setSpacing(4)
         self.items.itemSelectionChanged.connect(self._on_selection_changed)
         self.items.itemDoubleClicked.connect(lambda _: self._edit_selected())
         layout.addWidget(self.items, 1)
-
-        row = QHBoxLayout()
-        self.edit_button = QPushButton("Edit selected")
-        self.archive_button = QPushButton("Archive selected")
-        self.archive_button.setObjectName("dangerButton")
-        self.edit_button.setEnabled(False)
-        self.archive_button.setEnabled(False)
-        self.edit_button.clicked.connect(self._edit_selected)
-        self.archive_button.clicked.connect(self._archive_selected)
-        row.addWidget(self.edit_button)
-        row.addWidget(self.archive_button)
-        row.addStretch(1)
-        layout.addLayout(row)
         self.refresh()
 
     def refresh(self) -> None:
@@ -92,17 +80,66 @@ class FoodsView(QWidget):
         records.extend((recipe.draft.name, "recipe", recipe.id) for recipe in self.services.recipes.search(query))
         for name, kind, item_id in sorted(records, key=lambda value: value[0].casefold()):
             label = "Basic food · per 100 g" if kind == "food" else "Recipe · per 100 g"
-            item = QListWidgetItem(f"{name}\n{label}")
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, (kind, item_id))
             item.setToolTip(f"{name}, {label}")
             self.items.addItem(item)
+            row = self._make_catalogue_row(name, label)
+            self.items.setItemWidget(item, row)
+            item.setSizeHint(row.sizeHint())
         self._on_selection_changed()
+
+    def _make_catalogue_row(self, name: str, detail: str) -> QWidget:
+        row = QWidget()
+        row.setObjectName("catalogueRow")
+        row.setMinimumHeight(58)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(10, 6, 8, 6)
+        layout.setSpacing(8)
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        name_label = QLabel(name)
+        name_label.setStyleSheet("font-weight: 600;")
+        detail_label = QLabel(detail)
+        detail_label.setStyleSheet("font-size: 12px; color: #536175;")
+        text_layout.addWidget(name_label)
+        text_layout.addWidget(detail_label)
+        layout.addLayout(text_layout, 1)
+
+        edit = QPushButton("✎")
+        edit.setObjectName("catalogueEditButton")
+        edit.setAccessibleName(f"Edit {name}")
+        edit.setToolTip("Edit")
+        edit.clicked.connect(lambda checked=False: self._edit_selected())
+        archive = QPushButton("×")
+        archive.setObjectName("catalogueArchiveButton")
+        archive.setAccessibleName(f"Archive {name}")
+        archive.setToolTip("Archive")
+        archive.clicked.connect(lambda checked=False: self._archive_selected())
+        row.edit_button = edit
+        row.archive_button = archive
+        layout.addWidget(edit)
+        layout.addWidget(archive)
+        return row
 
     def _on_selection_changed(self) -> None:
         item = self.items.currentItem()
         self._selected = item.data(Qt.ItemDataRole.UserRole) if item else None
-        self.edit_button.setEnabled(self._selected is not None)
-        self.archive_button.setEnabled(self._selected is not None)
+        for index in range(self.items.count()):
+            current = self.items.item(index)
+            row = self.items.itemWidget(current)
+            if row is None:
+                continue
+            selected = current is item
+            row.setProperty("selected", selected)
+            row.setStyleSheet(
+                "QWidget#catalogueRow { background: #dce6fb; border-radius: 7px; }"
+                if selected else "QWidget#catalogueRow { background: transparent; }"
+            )
+            for name in ("edit_button", "archive_button"):
+                button = getattr(row, name, None)
+                if button is not None:
+                    button.setVisible(selected)
 
     def _add_food(self) -> None:
         dialog = FoodDialog(self)

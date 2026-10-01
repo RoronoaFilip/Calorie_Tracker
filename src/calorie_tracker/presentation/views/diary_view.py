@@ -24,6 +24,7 @@ from calorie_tracker.application.diary import MEALS
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.domain.diary import DiaryEntry
 from calorie_tracker.domain.nutrition import Nutrients
+from calorie_tracker.presentation.control_styles import style_calendar_arrows
 
 
 def _amount(value: Decimal) -> str:
@@ -123,17 +124,20 @@ class DiaryView(QWidget):
         header.addWidget(title)
         header.addStretch(1)
         self.previous_button = QPushButton("‹")
+        self.previous_button.setObjectName("previousDayButton")
         self.previous_button.setAccessibleName("Previous day")
         self.previous_button.setToolTip("Show previous day")
         self.previous_button.clicked.connect(lambda: self.shift_date(-1))
         header.addWidget(self.previous_button)
         self.date_picker = QDateEdit()
         self.date_picker.setCalendarPopup(True)
+        style_calendar_arrows(self.date_picker.calendarWidget())
         self.date_picker.setDisplayFormat("ddd, d MMM yyyy")
         self.date_picker.setAccessibleName("Selected diary date")
         self.date_picker.dateChanged.connect(self._date_changed)
         header.addWidget(self.date_picker)
         self.next_button = QPushButton("›")
+        self.next_button.setObjectName("nextDayButton")
         self.next_button.setAccessibleName("Next day")
         self.next_button.setToolTip("Show next day")
         self.next_button.clicked.connect(lambda: self.shift_date(1))
@@ -189,9 +193,13 @@ class DiaryView(QWidget):
         self.day_total_label = self.macro_cards["calories"][0]
 
         scroll = QScrollArea()
+        scroll.setObjectName("diaryMealsScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: #edf2f9; border: 0; }")
+        scroll.viewport().setStyleSheet("background: #edf2f9; border: 0;")
         content = QWidget()
+        content.setStyleSheet("background: #edf2f9;")
         self.meal_layout = QVBoxLayout(content)
         self.meal_layout.setContentsMargins(0, 0, 8, 0)
         self.meal_layout.setSpacing(12)
