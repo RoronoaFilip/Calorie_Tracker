@@ -73,7 +73,7 @@ class PresentationTests(unittest.TestCase):
         dialog.close()
 
     def test_recipe_ingredient_picker_shows_seeded_basic_foods_without_ice_creams(self):
-        source = Path(__file__).resolve().parents[1] / "macros_base - All Foods.csv"
+        source = Path(__file__).resolve().parents[1] / "food_macros_seed.csv"
         self.services.importer.apply(self.services.importer.preview(source))
         dialog = RecipeDialog(self.services.catalogue, self.services.foods)
 

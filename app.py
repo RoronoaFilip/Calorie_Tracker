@@ -17,7 +17,7 @@ def main() -> int:
     application = QApplication.instance() or QApplication(sys.argv)
     services = build_services(
         default_database_path(),
-        seed_source_path=project_root / "macros_base - All Foods.csv",
+        seed_source_path=project_root / "food_macros_seed.csv",
     )
     window = MainWindow(services)
     window.show()

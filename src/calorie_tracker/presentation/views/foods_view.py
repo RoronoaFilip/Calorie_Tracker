@@ -158,7 +158,7 @@ class FoodsView(QWidget):
         self.notify(f"{name} archived.")
 
     def _choose_import(self) -> None:
-        default_source = Path(__file__).resolve().parents[4] / "macros_base - All Foods.csv"
+        default_source = Path(__file__).resolve().parents[4] / "food_macros_seed.csv"
         filename, _ = QFileDialog.getOpenFileName(
             self, "Select food CSV", str(default_source), "CSV files (*.csv);;All files (*)"
         )

@@ -86,7 +86,7 @@ class CsvFoodImporterTests(unittest.TestCase):
         self.assertEqual(self.importer.apply(preview).imported, 0)
 
     def test_verified_project_source_previews_26_basic_foods_and_excludes_both_ice_creams(self):
-        source = Path(__file__).resolve().parents[1] / "macros_base - All Foods.csv"
+        source = Path(__file__).resolve().parents[1] / "food_macros_seed.csv"
 
         preview = self.importer.preview(source)
 

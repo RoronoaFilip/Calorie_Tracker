@@ -20,7 +20,7 @@ The project dependencies are declared in `pyproject.toml` and installed into `.v
 python app.py
 ```
 
-The first launch creates `data\calorie_tracker.sqlite3` and seeds the basic foods from `macros_base - All Foods.csv`. Only mapped per-100 g fields are imported; both ice cream rows are excluded, recipes are not seeded, and existing catalogue entries are never overwritten. **Foods → Preview CSV import** is available for reviewing a separate import.
+The first launch creates `data\calorie_tracker.sqlite3` and seeds the basic foods from `food_macros_seed.csv`. Only mapped per-100 g fields are imported; both ice cream rows are excluded, recipes are not seeded, and existing catalogue entries are never overwritten. **Foods → Preview CSV import** is available for reviewing a separate import.
 
 ## Run the checks
 

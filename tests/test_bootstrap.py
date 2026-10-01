@@ -46,7 +46,7 @@ class BootstrapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             try:
                 database_path = Path(temp_dir) / "data" / "calorie_tracker.sqlite3"
-                source = Path(__file__).resolve().parents[1] / "macros_base - All Foods.csv"
+                source = Path(__file__).resolve().parents[1] / "food_macros_seed.csv"
                 services = build_services(database_path, seed_source_path=source)
 
                 self.assertEqual(len(services.foods.search()), 26)
