@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from pathlib import Path
 
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.presentation.views.foods_view import FoodsView
@@ -89,7 +90,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(rail)
         layout.addWidget(self._stack, 1)
         self.setCentralWidget(root)
-        self.setStyleSheet("""
+        assets = Path(__file__).resolve().parent / "assets"
+        arrow_down = (assets / "chevron-down.svg").as_posix()
+        arrow_up = (assets / "chevron-up.svg").as_posix()
+        stylesheet = """
             QWidget { color: #243041; }
             QMainWindow, QWidget#mainContent { background: #edf2f9; color: #243041; }
             QDialog { background: #e8eef7; color: #243041; }
@@ -124,17 +128,15 @@ class MainWindow(QMainWindow):
             QDateEdit { min-width: 145px; font-size: 14px; color: #172538; }
             QComboBox, QDateEdit { padding-right: 30px; }
             QComboBox::drop-down, QDateEdit::drop-down {
-                subcontrol-origin: padding; subcontrol-position: right center; width: 25px;
+                subcontrol-origin: padding; subcontrol-position: right center; width: 30px;
                 border-left: 1px solid #c2cede; background: #e2eaf6;
                 border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
             QComboBox::down-arrow, QDateEdit::down-arrow {
-                image: none; width: 0; height: 0;
-                border-left: 5px solid transparent; border-right: 5px solid transparent;
-                border-top: 6px solid #536a91; }
-            QSpinBox, QDoubleSpinBox { padding-right: 27px; }
+                image: url("__ARROW_DOWN_URL__"); width: 14px; height: 10px; }
+            QSpinBox, QDoubleSpinBox { padding-right: 29px; }
             QSpinBox::up-button, QDoubleSpinBox::up-button,
             QSpinBox::down-button, QDoubleSpinBox::down-button {
-                subcontrol-origin: border; width: 22px; border-left: 1px solid #c2cede;
+                subcontrol-origin: border; width: 24px; border-left: 1px solid #c2cede;
                 background: #e2eaf6; }
             QSpinBox::up-button, QDoubleSpinBox::up-button {
                 subcontrol-position: top right; border-top-right-radius: 6px; }
@@ -143,13 +145,13 @@ class MainWindow(QMainWindow):
             QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
             QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover { background: #d1def1; }
             QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-                image: none; width: 0; height: 0;
-                border-left: 5px solid transparent; border-right: 5px solid transparent;
-                border-bottom: 6px solid #536a91; }
+                image: url("__ARROW_UP_URL__"); width: 14px; height: 10px; }
             QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-                image: none; width: 0; height: 0;
-                border-left: 5px solid transparent; border-right: 5px solid transparent;
-                border-top: 6px solid #536a91; }
+                image: url("__ARROW_DOWN_URL__"); width: 14px; height: 10px; }
+            QMenu { background: #f1f5fb; color: #243041; border: 1px solid #c2cede; padding: 4px; }
+            QMenu::item { background: transparent; color: #243041; padding: 5px 18px; }
+            QMenu::item:selected { background: #dce6fb; color: #243041; }
+            QMenu::item:disabled { color: #738094; }
             QComboBox QAbstractItemView { background: #f1f5fb; color: #243041;
                 selection-background-color: #dce6fb; selection-color: #243041; }
             QTableWidget { gridline-color: #d1dceb; }
@@ -160,6 +162,11 @@ class MainWindow(QMainWindow):
             QCalendarWidget QToolButton { color: #405985; background: transparent; border: 0;
                 border-radius: 7px; min-width: 34px; min-height: 32px; font-size: 20px; font-weight: 600; }
             QCalendarWidget QToolButton:hover { background: #cbd9ee; }
+            QCalendarWidget QToolButton#qt_calendar_monthbutton,
+            QCalendarWidget QToolButton#qt_calendar_yearbutton { padding-right: 12px; }
+            QCalendarWidget QToolButton::menu-indicator {
+                image: url("__ARROW_DOWN_URL__"); subcontrol-origin: padding;
+                subcontrol-position: right center; width: 14px; height: 10px; }
             QCalendarWidget QTableView { background: #f1f5fb; color: #243041; gridline-color: #edf0f5;
                 selection-background-color: #e3eaf9; selection-color: #243041; }
             QCalendarWidget QAbstractItemView:enabled { color: #243041; selection-background-color: #e3eaf9;
@@ -177,7 +184,10 @@ class MainWindow(QMainWindow):
             QWidget#catalogueRow[selected="true"] { background: #dce6fb; border-radius: 7px; }
             QPushButton#recipeRemoveButton { min-height: 30px; padding: 5px 10px; }
             QFrame#card { background: #e5edf8; border: 1px solid #d1dceb; border-radius: 13px; }
-        """)
+        """
+        self.setStyleSheet(
+            stylesheet.replace("__ARROW_DOWN_URL__", arrow_down).replace("__ARROW_UP_URL__", arrow_up)
+        )
 
     @staticmethod
     def _navigation_icon(glyph: str) -> QIcon:

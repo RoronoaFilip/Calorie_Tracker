@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -24,7 +25,9 @@ from calorie_tracker.application.diary import MEALS
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.domain.diary import DiaryEntry
 from calorie_tracker.domain.nutrition import Nutrients
-from calorie_tracker.presentation.control_styles import style_calendar_arrows
+from calorie_tracker.presentation.control_styles import style_calendar_arrows, style_chevron_button
+from calorie_tracker.infrastructure.diary_csv_importer import DiaryCsvFormatError
+from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog
 
 
 def _amount(value: Decimal) -> str:
@@ -123,28 +126,34 @@ class DiaryView(QWidget):
         title.setStyleSheet("font-size: 26px; font-weight: 650; color: #172538;")
         header.addWidget(title)
         header.addStretch(1)
-        self.previous_button = QPushButton("‹")
+        self.previous_button = QPushButton()
         self.previous_button.setObjectName("previousDayButton")
-        self.previous_button.setAccessibleName("Previous day")
-        self.previous_button.setToolTip("Show previous day")
+        style_chevron_button(self.previous_button, "left", "Previous day")
         self.previous_button.clicked.connect(lambda: self.shift_date(-1))
         header.addWidget(self.previous_button)
         self.date_picker = QDateEdit()
         self.date_picker.setCalendarPopup(True)
         style_calendar_arrows(self.date_picker.calendarWidget())
         self.date_picker.setDisplayFormat("ddd, d MMM yyyy")
+        self.date_picker.setDate(QDate.currentDate())
         self.date_picker.setAccessibleName("Selected diary date")
+        self.date_picker.setToolTip("Choose the diary date")
         self.date_picker.dateChanged.connect(self._date_changed)
         header.addWidget(self.date_picker)
-        self.next_button = QPushButton("›")
+        self.next_button = QPushButton()
         self.next_button.setObjectName("nextDayButton")
-        self.next_button.setAccessibleName("Next day")
-        self.next_button.setToolTip("Show next day")
+        style_chevron_button(self.next_button, "right", "Next day")
         self.next_button.clicked.connect(lambda: self.shift_date(1))
         header.addWidget(self.next_button)
         today_button = QPushButton("Today")
         today_button.clicked.connect(lambda: self.set_date(date.today().isoformat()))
         header.addWidget(today_button)
+        self.import_csv_button = QPushButton("Import CSV")
+        self.import_csv_button.setObjectName("importDiaryCsvButton")
+        self.import_csv_button.setAccessibleName("Import diary entries from CSV")
+        self.import_csv_button.setToolTip("Import foods and amounts for this selected day")
+        self.import_csv_button.clicked.connect(self.choose_diary_csv)
+        header.addWidget(self.import_csv_button)
         self.undo_button = QPushButton("Undo delete")
         self.undo_button.setToolTip("Restore the diary entry you just deleted")
         self.undo_button.setVisible(False)
@@ -270,6 +279,30 @@ class DiaryView(QWidget):
         self.refresh()
         self.notify(f"Added {entry.display_name} to {meal}.")
         return entry
+
+    def choose_diary_csv(self) -> None:
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Select diary CSV", "", "CSV files (*.csv);;All files (*)"
+        )
+        if filename:
+            self.import_diary_csv(filename)
+
+    def import_diary_csv(self, filename: str) -> None:
+        try:
+            preview = self.services.diary_importer.preview(filename)
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, "CSV validation failed", str(error))
+            return
+        dialog = DiaryCsvReviewDialog(self.services, self.selected_date, preview, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.refresh()
+        window = self.window()
+        calendar_view = getattr(window, "calendar_view", None)
+        if calendar_view is not None:
+            calendar_view.refresh()
+        count = len(dialog.imported_entries)
+        self.notify(f"Imported {count} diary entr{'y' if count == 1 else 'ies'} for {self.selected_date}.")
 
     def _clear_layout(self, layout: QVBoxLayout) -> None:
         while layout.count():

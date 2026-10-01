@@ -8,6 +8,7 @@ from .application.diary import DiaryService
 from .infrastructure.database import Database
 from .infrastructure.backup import BackupService
 from .infrastructure.importer import CsvFoodImporter
+from .infrastructure.diary_csv_importer import CsvDiaryImporter
 from .infrastructure.repositories import (
     DiaryRepository,
     FoodRepository,
@@ -26,6 +27,7 @@ class ApplicationServices:
     catalogue: CatalogueService
     diary: DiaryService
     importer: CsvFoodImporter
+    diary_importer: CsvDiaryImporter
     backup: BackupService
 
 
@@ -57,6 +59,7 @@ def build_services(
     catalogue = CatalogueService(foods, recipes)
     diary = DiaryService(foods, recipes, diary_repository)
     importer = CsvFoodImporter(foods)
+    diary_importer = CsvDiaryImporter(foods)
     if seed_source_path is not None and settings.get_json("initial_food_seed_v1") is None:
         source = Path(seed_source_path)
         if source.is_file():
@@ -77,7 +80,10 @@ def build_services(
                     "Initial food catalogue seed failed for %s", source
                 )
     backup = BackupService(database, path.parent / "backups")
-    return ApplicationServices(database, foods, recipes, diary_repository, settings, catalogue, diary, importer, backup)
+    return ApplicationServices(
+        database, foods, recipes, diary_repository, settings, catalogue, diary,
+        importer, diary_importer, backup,
+    )
 
 
 def default_database_path() -> Path:

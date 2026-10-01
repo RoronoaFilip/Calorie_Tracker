@@ -1,14 +1,18 @@
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 import uuid
 
-from calorie_tracker.domain.diary import DayTotals, DiaryEntry
+from calorie_tracker.domain.diary import DayTotals, DiaryEntry, MEALS
 from calorie_tracker.domain.nutrition import Nutrients, ZERO
 from calorie_tracker.infrastructure.repositories import DiaryRepository, FoodRepository, RecipeRepository
 
 
-MEALS = ("Breakfast", "Lunch", "Dinner", "Snacks")
+@dataclass(frozen=True)
+class DiaryEntryInput:
+    meal: str
+    catalogue_item_id: str
+    amount_g: Decimal
 
 
 class DiaryService:
@@ -51,6 +55,33 @@ class DiaryService:
         )
         self.diary.add(entry)
         return entry
+
+    def add_items_batch(
+        self, diary_date: str, items: tuple[DiaryEntryInput, ...]
+    ) -> tuple[DiaryEntry, ...]:
+        self._validate_date(diary_date)
+        entries: list[DiaryEntry] = []
+        for item in items:
+            if item.meal not in MEALS:
+                raise ValueError(f"Meal must be one of: {', '.join(MEALS)}.")
+            self._validate_amount(item.amount_g)
+            food = self.foods.get(item.catalogue_item_id)
+            if food is not None:
+                if not food.active:
+                    raise ValueError("Archived foods cannot be added to the diary.")
+                name, nutrients = food.name, food.nutrients_per_100g
+            else:
+                recipe = self.recipes.get(item.catalogue_item_id)
+                if recipe is None or not recipe.active:
+                    raise ValueError("Choose an active food or recipe from the catalogue.")
+                name, nutrients = recipe.draft.name, recipe.per_100g
+            entries.append(DiaryEntry(
+                str(uuid.uuid4()), diary_date, item.meal, item.catalogue_item_id,
+                name, item.amount_g, nutrients,
+            ))
+        result = tuple(entries)
+        self.diary.add_many(result)
+        return result
 
     def entries_for_day(self, diary_date: str) -> tuple[DiaryEntry, ...]:
         self._validate_date(diary_date)

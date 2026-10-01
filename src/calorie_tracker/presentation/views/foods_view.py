@@ -216,11 +216,16 @@ class FoodsView(QWidget):
             f"Ignored columns: {', '.join(report.ignored_headers)}"
         )
         if report.row_errors:
-            details += "\n\n" + "\n".join(report.row_errors[:8])
-        answer = QMessageBox.question(
-            self, "Review food import", details + "\n\nAdd these foods to the catalogue? Existing foods will not be overwritten.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-        )
+            details += f"\n\nRows with validation errors: {len(report.row_errors)}"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Review food import")
+        box.setText(details + "\n\nAdd these foods to the catalogue? Existing foods will not be overwritten.")
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if report.row_errors:
+            box.setDetailedText("\n".join(report.row_errors))
+        answer = box.exec()
         if answer != QMessageBox.StandardButton.Yes:
             return
         result = self.services.importer.apply(preview)

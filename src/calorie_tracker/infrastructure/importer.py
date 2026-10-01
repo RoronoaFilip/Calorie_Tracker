@@ -9,6 +9,12 @@ from calorie_tracker.domain.recipes import Food
 from .repositories import FoodRepository
 from .source_map import CSV_HEADER_ROW, EXCLUDED_ICE_CREAM_NAMES, FOOD_NAME_HEADER, NUTRIENT_HEADERS
 
+FOOD_CSV_FORMAT_GUIDANCE = (
+    "Expected header columns on row 5: "
+    + ", ".join((FOOD_NAME_HEADER, *NUTRIENT_HEADERS.values()))
+    + ". Values must use the explicitly mapped per-100g columns."
+)
+
 
 class ImportFormatError(ValueError):
     """The source CSV does not have the explicitly reviewed layout."""
@@ -51,15 +57,36 @@ class CsvFoodImporter:
         self.repository = repository
 
     def preview(self, path: Path | str) -> ImportPreview:
-        with Path(path).open("r", encoding="utf-8-sig", newline="") as stream:
-            rows = list(csv.reader(stream))
+        try:
+            with Path(path).open("r", encoding="utf-8-sig", newline="") as stream:
+                rows = list(csv.reader(stream, strict=True))
+        except csv.Error as error:
+            raise ImportFormatError(
+                f"CSV syntax error: {error}. {FOOD_CSV_FORMAT_GUIDANCE}"
+            ) from error
         if len(rows) <= CSV_HEADER_ROW:
-            raise ImportFormatError("The CSV does not contain the expected food header row.")
+            raise ImportFormatError(
+                "This file is not in the food catalogue import format. The header must be on row 5 and include "
+                f"'{FOOD_NAME_HEADER}' plus the mapped per-100g nutrition columns. {FOOD_CSV_FORMAT_GUIDANCE}"
+            )
         header = rows[CSV_HEADER_ROW]
         required_headers = (FOOD_NAME_HEADER, *NUTRIENT_HEADERS.values())
         missing = [column for column in required_headers if column not in header]
+        duplicates = [column for column in required_headers if header.count(column) > 1]
+        if duplicates:
+            raise ImportFormatError(
+                "The food CSV contains duplicate required column(s): "
+                + ", ".join(duplicates)
+                + ".\n\n"
+                + FOOD_CSV_FORMAT_GUIDANCE
+            )
         if missing:
-            raise ImportFormatError("Missing required source column(s): " + ", ".join(missing))
+            raise ImportFormatError(
+                "This file is not in the food catalogue import format. Missing required column(s): "
+                + ", ".join(missing)
+                + ".\n\n"
+                + FOOD_CSV_FORMAT_GUIDANCE
+            )
         positions = {name: header.index(name) for name in required_headers}
         ignored = tuple(name for name in header if name not in required_headers)
         foods: list[ImportFood] = []

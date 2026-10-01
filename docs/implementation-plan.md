@@ -50,6 +50,9 @@ Show a short tooltip on hover for every navigation icon and any icon-only action
 - Existing entries can be edited and explicitly saved or cancelled. New entries are committed on add.
 - Deleting an entry always asks for confirmation.
 - A day can contain any number of entries in each meal section, including none.
+- Import CSV is available from the selected day's diary. It validates the full file, matches food names to active basic catalogue foods, and appends the accepted rows in one transaction without replacing existing entries.
+- Diary CSV requires `food_name` and `grams_eaten (all meals)` headers, with an optional `meal` header. When a valid row has no meal, let the user choose Breakfast, Lunch, Dinner, or Snacks for that row, or assign all unassigned rows to Snacks.
+- Show row-level validation errors and the accepted header/example format before importing. A malformed file must not partially write diary entries.
 
 ### Food and recipe management
 
@@ -261,6 +264,7 @@ Design the application as a calm, bright daily dashboard rather than a spreadshe
 - Foods view has a search field, filter chips or simple category filter if useful, and a readable list/table with name, basis unit, and per-100 nutrition. Put **Add food** and **Create recipe** in a prominent top action area. Food and recipe create/edit use one shared management window with a clear type selector, not separate disconnected tools.
 - Recipe editor presents an ingredient list with amount/unit, an **Add ingredient** searchable picker, yield field, and calculated nutrition preview. Keep calculations visible before save.
 - Settings stay intentionally small: optional daily macro targets, preferred display precision/unit where applicable, and a local backup/export action if included. Avoid burying daily logging controls here.
+- Date pickers and other arrow controls use visible, accessible indicators. Calendar month/year popup menus use a light palette with readable text.
 
 ## Fast interaction and performance rules
 

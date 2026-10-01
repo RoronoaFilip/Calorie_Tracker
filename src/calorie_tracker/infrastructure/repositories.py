@@ -225,20 +225,26 @@ class DiaryRepository:
         )
 
     def add(self, entry: DiaryEntry) -> None:
+        self.add_many((entry,))
+
+    def add_many(self, entries: tuple[DiaryEntry, ...]) -> None:
+        if not entries:
+            return
         with self.database.transaction() as connection:
-            connection.execute(
-                """INSERT INTO diary_entries
-                   (id, diary_date, meal, catalogue_item_id, display_name, amount_g, nutrients_snapshot_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (entry.id, entry.diary_date, entry.meal, entry.catalogue_item_id, entry.display_name,
-                 str(entry.amount_g), _nutrients_to_json(entry.nutrients_per_100g)),
-            )
-            if entry.catalogue_item_id is not None:
+            for entry in entries:
                 connection.execute(
-                    """INSERT INTO recent_foods(catalogue_item_id, last_used_at) VALUES (?, CURRENT_TIMESTAMP)
-                       ON CONFLICT(catalogue_item_id) DO UPDATE SET last_used_at=CURRENT_TIMESTAMP""",
-                    (entry.catalogue_item_id,),
+                    """INSERT INTO diary_entries
+                       (id, diary_date, meal, catalogue_item_id, display_name, amount_g, nutrients_snapshot_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (entry.id, entry.diary_date, entry.meal, entry.catalogue_item_id, entry.display_name,
+                     str(entry.amount_g), _nutrients_to_json(entry.nutrients_per_100g)),
                 )
+                if entry.catalogue_item_id is not None:
+                    connection.execute(
+                        """INSERT INTO recent_foods(catalogue_item_id, last_used_at) VALUES (?, CURRENT_TIMESTAMP)
+                           ON CONFLICT(catalogue_item_id) DO UPDATE SET last_used_at=CURRENT_TIMESTAMP""",
+                        (entry.catalogue_item_id,),
+                    )
 
     def get(self, entry_id: str) -> DiaryEntry | None:
         with self.database.read_connection() as connection:

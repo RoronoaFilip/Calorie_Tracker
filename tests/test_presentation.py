@@ -11,12 +11,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QDate, QRect, QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
+from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton, QToolButton
 
 from calorie_tracker.bootstrap import build_services
 from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
+from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog, MealAssignmentDialog
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.main_window import MainWindow
 from calorie_tracker.presentation.views.diary_view import AddEntryDialog
@@ -105,6 +106,7 @@ class PresentationTests(unittest.TestCase):
 
     def test_diary_view_shows_meals_totals_and_adds_food_automatically(self):
         diary = self.window.diary_view
+        self.assertEqual(diary.date_picker.date().toString("yyyy-MM-dd"), diary.selected_date)
         diary.set_date("2026-10-01")
         self.assertEqual(diary.day_total_label.text(), "0 kcal")
         self.assertEqual(len(diary.meal_panels), 4)
@@ -115,6 +117,100 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].display_name, "Oats")
         self.assertIn("190", diary.day_total_label.text())
+
+    def test_diary_import_button_and_review_dialog_import_to_selected_day(self):
+        source = Path(self.temp_dir.name) / "day.csv"
+        source.write_text(
+            "food_name,grams_eaten (all meals)\nOats,50\nOats,25\n",
+            encoding="utf-8",
+        )
+        diary = self.window.diary_view
+        diary.set_date("2026-09-30")
+        preexisting = self.services.diary.add_item("2026-09-30", "Lunch", "oats", Decimal("10"))
+        button = diary.findChild(QPushButton, "importDiaryCsvButton")
+        self.assertIsNotNone(button)
+        self.assertEqual(button.accessibleName(), "Import diary entries from CSV")
+
+        preview = self.services.diary_importer.preview(source)
+        dialog = DiaryCsvReviewDialog(self.services, diary.selected_date, preview, diary)
+        self.assertEqual(dialog.import_button.text(), "Import 0 entries")
+        dialog.all_snacks_button.click()
+        self.assertEqual(dialog.import_button.text(), "Import 2 entries")
+        self.assertTrue(dialog.import_button.isEnabled())
+        dialog.import_button.click()
+
+        entries = self.services.diary.entries_for_day("2026-09-30")
+        self.assertEqual(tuple(entry.meal for entry in entries), ("Lunch", "Snacks", "Snacks"))
+        self.assertEqual(tuple(entry.amount_g for entry in entries), (Decimal("10"), Decimal("50"), Decimal("25")))
+        self.assertEqual(entries[0], preexisting)
+        self.assertEqual(diary.selected_date, "2026-09-30")
+
+    def test_missing_meal_prompt_offers_one_click_per_meal(self):
+        row = self.services.diary_importer.preview
+        source = Path(self.temp_dir.name) / "day.csv"
+        source.write_text("food_name,grams_eaten (all meals)\nOats,50\n", encoding="utf-8")
+        unresolved = row(source).needs_meal_assignment[0]
+        dialog = MealAssignmentDialog(unresolved, self.window)
+
+        for meal in ("Breakfast", "Lunch", "Dinner", "Snacks"):
+            button = dialog.findChild(QPushButton, f"assignMeal{meal}")
+            self.assertIsNotNone(button)
+        dialog.findChild(QPushButton, "assignMealDinner").click()
+
+        self.assertEqual(dialog.meal, "Dinner")
+
+    def test_diary_csv_review_shows_bad_rows_and_does_not_save_them(self):
+        source = Path(self.temp_dir.name) / "day.csv"
+        source.write_text(
+            "food_name,grams_eaten (all meals),meal\nOats,50,Breakfast\nMissing,30,Lunch\n",
+            encoding="utf-8",
+        )
+        preview = self.services.diary_importer.preview(source)
+        dialog = DiaryCsvReviewDialog(self.services, "2026-09-30", preview, self.window)
+
+        self.assertIn("1 row will be skipped", dialog.summary_label.text())
+        self.assertIn("not found", dialog.table.item(1, 4).text().casefold())
+        self.assertTrue(dialog.import_button.isEnabled())
+        self.assertEqual(self.services.diary.entries_for_day("2026-09-30"), ())
+
+    def test_diary_csv_meal_column_imports_each_row_into_its_meal(self):
+        source = Path(self.temp_dir.name) / "day.csv"
+        source.write_text(
+            "food_name,grams_eaten (all meals),meal\nOats,50,Breakfast\nOats,25,Dinner\n",
+            encoding="utf-8",
+        )
+        preview = self.services.diary_importer.preview(source)
+        dialog = DiaryCsvReviewDialog(self.services, "2026-09-30", preview, self.window)
+
+        self.assertEqual(dialog.table.item(0, 3).text(), "Breakfast")
+        self.assertEqual(dialog.table.item(1, 3).text(), "Dinner")
+        dialog.import_button.click()
+
+        self.assertEqual(
+            tuple(entry.meal for entry in self.services.diary.entries_for_day("2026-09-30")),
+            ("Breakfast", "Dinner"),
+        )
+
+    def test_invalid_diary_csv_shows_expected_format_without_writing(self):
+        source = Path(self.temp_dir.name) / "wrong.csv"
+        source.write_text("name,amount\nOats,50\n", encoding="utf-8")
+
+        with patch("calorie_tracker.presentation.views.diary_view.QMessageBox.critical") as critical:
+            self.window.diary_view.import_diary_csv(str(source))
+
+        self.assertIn("Expected header", critical.call_args.args[2])
+        self.assertIn("Example row", critical.call_args.args[2])
+        self.assertEqual(self.services.diary.entries_for_day(self.window.diary_view.selected_date), ())
+
+    def test_invalid_catalogue_csv_shows_expected_format_without_writing(self):
+        source = Path(self.temp_dir.name) / "wrong-foods.csv"
+        source.write_text("name,calories\nOats,100\n", encoding="utf-8")
+
+        with patch("calorie_tracker.presentation.views.foods_view.QMessageBox.critical") as critical:
+            self.window.foods_view.import_csv(source)
+
+        self.assertIn("Expected header columns", critical.call_args.args[2])
+        self.assertEqual(self.services.foods.search(), (self.services.foods.get("oats"),))
 
     def test_diary_picker_places_recent_foods_above_search_results(self):
         self.services.diary.add_item("2026-10-01", "Breakfast", "oats", Decimal("40"))
@@ -195,6 +291,41 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(field.palette().color(field.backgroundRole()), QColor("#f1f5fb"))
         self.assertIn("QDialog", self.window.styleSheet())
         dialog.close()
+
+    def test_all_dropdown_and_spin_arrows_have_clear_indicators_and_light_popups(self):
+        stylesheet = self.window.styleSheet()
+
+        self.assertIn("QMenu { background: #f1f5fb; color: #243041;", stylesheet)
+        self.assertIn("QComboBox::down-arrow", stylesheet)
+        self.assertIn("QDateEdit::down-arrow", stylesheet)
+        self.assertIn("QSpinBox::up-arrow", stylesheet)
+        self.assertIn("QDoubleSpinBox::down-arrow", stylesheet)
+        self.assertIn("chevron-down.svg", stylesheet)
+        self.assertIn("chevron-up.svg", stylesheet)
+        self.assertNotIn('image: url("file:///', stylesheet)
+        popup_calendar = self.window.diary_view.date_picker.calendarWidget()
+        self.assertEqual(
+            popup_calendar.findChild(QToolButton, "qt_calendar_prevmonth").toolTip(), "Previous month"
+        )
+        self.assertEqual(
+            popup_calendar.findChild(QToolButton, "qt_calendar_nextmonth").toolTip(), "Next month"
+        )
+        self.assertEqual(
+            popup_calendar.findChild(QToolButton, "qt_calendar_monthbutton").toolTip(), "Choose month"
+        )
+        self.assertEqual(
+            popup_calendar.findChild(QToolButton, "qt_calendar_yearbutton").toolTip(), "Choose year"
+        )
+
+    def test_day_and_calendar_navigation_arrows_use_visible_icons(self):
+        for button in (
+            self.window.diary_view.previous_button,
+            self.window.diary_view.next_button,
+            self.window.calendar_view.calendar.findChild(QToolButton, "qt_calendar_prevmonth"),
+            self.window.calendar_view.calendar.findChild(QToolButton, "qt_calendar_nextmonth"),
+        ):
+            self.assertFalse(button.icon().isNull())
+            self.assertEqual(button.text(), "")
 
     def test_diary_meal_cards_have_distinct_tinted_backgrounds(self):
         colors = {

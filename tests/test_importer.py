@@ -73,8 +73,32 @@ class CsvFoodImporterTests(unittest.TestCase):
         text = path.read_text(encoding="utf-8").replace("protein / 100g", "protein per serving")
         path.write_text(text, encoding="utf-8")
 
-        with self.assertRaisesRegex(ImportFormatError, "protein / 100g"):
+        with self.assertRaises(ImportFormatError) as error:
             self.importer.preview(path)
+        self.assertIn("protein / 100g", str(error.exception))
+        self.assertIn("Expected header columns", str(error.exception))
+
+    def test_preview_reports_malformed_csv_syntax_with_food_header_guidance(self):
+        path = Path(self.temp_dir.name) / "broken.csv"
+        path.write_text("title\ninstructions\ntotal\n\n" + ",".join(HEADER) + '\n"Oats,broken\n',
+                        encoding="utf-8")
+
+        with self.assertRaises(ImportFormatError) as error:
+            self.importer.preview(path)
+
+        self.assertIn("Expected header", str(error.exception))
+        self.assertIn("food_name", str(error.exception))
+
+    def test_preview_rejects_duplicate_required_headers_with_format_guidance(self):
+        path = write_csv(self.temp_dir.name, [row("Oats")])
+        text = path.read_text(encoding="utf-8").replace("food_name,grams_eaten", "food_name,food_name,grams_eaten")
+        path.write_text(text, encoding="utf-8")
+
+        with self.assertRaises(ImportFormatError) as error:
+            self.importer.preview(path)
+
+        self.assertIn("duplicate", str(error.exception).casefold())
+        self.assertIn("Expected header columns", str(error.exception))
 
     def test_ice_cream_rows_are_excluded_from_basic_food_import(self):
         path = write_csv(self.temp_dir.name, [row("Cocoa Ice Cream"), row("Vanilla ice cream")])

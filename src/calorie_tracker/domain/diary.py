@@ -3,6 +3,8 @@ from decimal import Decimal
 
 from .nutrition import Nutrients
 
+MEALS = ("Breakfast", "Lunch", "Dinner", "Snacks")
+
 
 @dataclass(frozen=True)
 class DiaryEntry:

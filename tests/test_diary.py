@@ -7,7 +7,7 @@ from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.domain.recipes import Food
 from calorie_tracker.infrastructure.database import Database
 from calorie_tracker.infrastructure.repositories import DiaryRepository, FoodRepository, RecipeRepository
-from calorie_tracker.application.diary import DiaryService, MEALS
+from calorie_tracker.application.diary import DiaryEntryInput, DiaryService, MEALS
 
 
 class DiaryServiceTests(unittest.TestCase):
@@ -87,6 +87,26 @@ class DiaryServiceTests(unittest.TestCase):
         reopened = DiaryRepository(Database(self.database_path))
 
         self.assertEqual(reopened.entries_on("2026-10-01"), (entry,))
+
+    def test_batch_add_imports_entries_to_selected_day_and_meals_with_snapshots(self):
+        entries = self.service.add_items_batch("2026-09-30", (
+            DiaryEntryInput("Breakfast", "food-1", Decimal("50")),
+            DiaryEntryInput("Snacks", "food-1", Decimal("25")),
+        ))
+
+        self.assertEqual(tuple(entry.meal for entry in entries), ("Breakfast", "Snacks"))
+        self.assertEqual(tuple(entry.diary_date for entry in entries), ("2026-09-30", "2026-09-30"))
+        self.assertEqual(self.diary_repository.entries_on("2026-09-30"), entries)
+        self.assertEqual(tuple(entry.nutrients.calories for entry in entries), (Decimal("105"), Decimal("52.5")))
+
+    def test_batch_add_validates_every_row_before_writing_any_entries(self):
+        with self.assertRaises(ValueError):
+            self.service.add_items_batch("2026-09-30", (
+                DiaryEntryInput("Breakfast", "food-1", Decimal("50")),
+                DiaryEntryInput("Brunch", "food-1", Decimal("25")),
+            ))
+
+        self.assertEqual(self.diary_repository.entries_on("2026-09-30"), ())
 
 
 if __name__ == "__main__":
