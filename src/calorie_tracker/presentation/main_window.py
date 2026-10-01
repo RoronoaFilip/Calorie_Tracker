@@ -1,6 +1,7 @@
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -16,6 +17,7 @@ from calorie_tracker.presentation.views.foods_view import FoodsView
 from calorie_tracker.presentation.views.diary_view import DiaryView
 from calorie_tracker.presentation.views.calendar_view import CalendarView
 from calorie_tracker.presentation.views.settings_view import SettingsView
+from calorie_tracker.presentation.control_styles import install_pointing_cursors
 
 
 class MainWindow(QMainWindow):
@@ -28,6 +30,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, services: ApplicationServices):
         super().__init__()
+        install_pointing_cursors(QApplication.instance())
         self.services = services
         self.setWindowTitle("Daily Plate · Calorie Tracker")
         self.setMinimumSize(1040, 680)
@@ -159,6 +162,7 @@ class MainWindow(QMainWindow):
             QTableCornerButton::section { background: #dfe8f5; border: 0; }
             QScrollArea { background: #edf2f9; border: 0; }
             QCalendarWidget QWidget#qt_calendar_navigationbar { background: #dfe8f5; }
+            QCalendarWidget { background: #f1f5fb; border: 1px solid #c2cede; border-radius: 8px; }
             QCalendarWidget QToolButton { color: #405985; background: transparent; border: 0;
                 border-radius: 7px; min-width: 34px; min-height: 32px; font-size: 20px; font-weight: 600; }
             QCalendarWidget QToolButton:hover { background: #cbd9ee; }
@@ -167,8 +171,10 @@ class MainWindow(QMainWindow):
             QCalendarWidget QToolButton::menu-indicator {
                 image: url("__ARROW_DOWN_URL__"); subcontrol-origin: padding;
                 subcontrol-position: right center; width: 14px; height: 10px; }
-            QCalendarWidget QTableView { background: #f1f5fb; color: #243041; gridline-color: #edf0f5;
+            QCalendarWidget QTableView { background: #f1f5fb; color: #243041; gridline-color: #cbd6e5;
+                border: 1px solid #c2cede; font-size: 16px;
                 selection-background-color: #e3eaf9; selection-color: #243041; }
+            QCalendarWidget QTableView::item { border: 1px solid #d5dfed; }
             QCalendarWidget QAbstractItemView:enabled { color: #243041; selection-background-color: #e3eaf9;
                 selection-color: #243041; }
             QStatusBar { background: #dfe8f5; color: #344154; }

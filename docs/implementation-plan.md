@@ -265,6 +265,7 @@ Design the application as a calm, bright daily dashboard rather than a spreadshe
 - Recipe editor presents an ingredient list with amount/unit, an **Add ingredient** searchable picker, calculated read-only yield, and calculated nutrition per 100 g. Keep calculations visible before save.
 - Settings stay intentionally small: optional daily macro targets, preferred display precision/unit where applicable, and a local backup/export action if included. Avoid burying daily logging controls here.
 - Date pickers and other arrow controls use visible, accessible indicators. Calendar month/year popup menus use a light palette with readable text.
+- Calendar history has an outlined month grid with larger date numbers and a darker hovered day; the today marker has no hover tooltip. Clickable controls use a pointing-hand cursor.
 
 ## Fast interaction and performance rules
 

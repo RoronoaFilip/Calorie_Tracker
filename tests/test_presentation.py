@@ -8,10 +8,20 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QDate, QRect, QTimer, Qt
+from PySide6.QtCore import QDate, QPoint, QRect, QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox, QPushButton, QToolButton
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QComboBox,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTableView,
+    QToolButton,
+)
 
 from calorie_tracker.bootstrap import build_services
 from calorie_tracker.domain.nutrition import Nutrients
@@ -296,7 +306,7 @@ class PresentationTests(unittest.TestCase):
         format_for_day = self.window.calendar_view.calendar.dateTextFormat(QDate(2026, 10, 1))
         self.assertTrue(format_for_day.fontUnderline())
         self.assertEqual(format_for_day.background().style(), Qt.BrushStyle.NoBrush)
-        self.assertFalse(self.window.calendar_view.calendar.isGridVisible())
+        self.assertTrue(self.window.calendar_view.calendar.isGridVisible())
         self.assertGreater(self.window.calendar_view.calendar.maximumSize().width(), 500)
         self.assertGreater(self.window.calendar_view.calendar.maximumSize().height(), 360)
 
@@ -315,6 +325,50 @@ class PresentationTests(unittest.TestCase):
             and image.pixelColor(x, y).blue() < 120
         )
         self.assertGreater(red_pixels, 0)
+
+    def test_calendar_has_framed_hoverable_larger_days_without_tooltip(self):
+        self.window._select_view("Calendar")
+        self.window.show()
+        self.application.processEvents()
+        calendar = self.window.calendar_view.calendar
+        table = calendar.findChild(QTableView)
+        calendar.setCurrentPage(2026, 10)
+        table.ensurePolished()
+
+        self.assertTrue(calendar.isGridVisible())
+        self.assertEqual(calendar.toolTip(), "")
+        self.assertTrue(table.hasMouseTracking())
+        self.assertEqual(table.font().pixelSize(), 16)
+        self.assertIn("QCalendarWidget { background: #f1f5fb; border: 1px solid #c2cede;", self.window.styleSheet())
+        target = QDate(2026, 10, 3)
+        first_day = QDate(2026, 10, 1)
+        offset = (first_day.dayOfWeek() - calendar.firstDayOfWeek().value + 7) % 7
+        cell_number = target.day() - 1 + offset
+        row = 1 + cell_number // 7
+        column = table.model().columnCount() - 7 + cell_number % 7
+        cell = table.model().index(row, column)
+        QTest.mouseMove(table.viewport(), table.visualRect(cell).center())
+        self.application.processEvents()
+        self.assertEqual(
+            calendar.dateTextFormat(target).background().color(), QColor("#cbd9ee")
+        )
+
+    def test_interactive_controls_use_pointing_hand_cursor(self):
+        pointer = Qt.CursorShape.PointingHandCursor
+        calendar_table = self.window.calendar_view.calendar.findChild(QAbstractItemView)
+        recipe_dialog = RecipeDialog(self.services.catalogue, self.services.foods)
+        self.addCleanup(recipe_dialog.close)
+
+        for widget in (
+            self.window.diary_view.previous_button,
+            self.window.foods_view.add_food_button,
+            self.window.diary_view.date_picker,
+            recipe_dialog.food_picker,
+            calendar_table,
+            calendar_table.viewport(),
+        ):
+            widget.ensurePolished()
+            self.assertEqual(widget.cursor().shape(), pointer, type(widget).__name__)
 
     def test_form_controls_use_dark_text_on_light_backgrounds(self):
         dialog = FoodDialog(self.window)

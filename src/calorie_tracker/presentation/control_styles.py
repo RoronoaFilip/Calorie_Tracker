@@ -1,11 +1,49 @@
 from pathlib import Path
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QEvent, QObject, QSize, Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QCalendarWidget, QToolButton
+from PySide6.QtWidgets import (
+    QAbstractButton,
+    QAbstractItemView,
+    QAbstractSpinBox,
+    QApplication,
+    QCalendarWidget,
+    QComboBox,
+    QMenu,
+    QTableView,
+    QToolButton,
+    QWidget,
+)
 
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
+_CLICKABLE_TYPES = (QAbstractButton, QAbstractItemView, QAbstractSpinBox, QComboBox, QMenu)
+
+
+class _PointingCursorFilter(QObject):
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.Polish:
+            _set_pointing_cursor(watched)
+        return False
+
+
+def _set_pointing_cursor(widget: QWidget) -> None:
+    if not isinstance(widget, _CLICKABLE_TYPES):
+        return
+    widget.setCursor(Qt.CursorShape.PointingHandCursor)
+    if isinstance(widget, QAbstractItemView):
+        widget.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+
+
+def install_pointing_cursors(application: QApplication) -> None:
+    """Use a hand cursor on buttons, menus, pickers, and selectable views app-wide."""
+    cursor_filter = getattr(application, "_pointing_cursor_filter", None)
+    if cursor_filter is None:
+        cursor_filter = _PointingCursorFilter(application)
+        application._pointing_cursor_filter = cursor_filter
+        application.installEventFilter(cursor_filter)
+    for widget in application.allWidgets():
+        _set_pointing_cursor(widget)
 
 
 def style_chevron_button(button: QToolButton, direction: str, label: str) -> None:
@@ -21,6 +59,10 @@ def style_chevron_button(button: QToolButton, direction: str, label: str) -> Non
 
 def style_calendar_arrows(calendar: QCalendarWidget) -> None:
     """Replace the platform calendar arrows with larger, themed chevrons."""
+    day_grid = calendar.findChild(QTableView)
+    if day_grid is not None:
+        day_grid.setMouseTracking(True)
+        day_grid.viewport().setMouseTracking(True)
     controls = (
         ("qt_calendar_prevmonth", "left", "Previous month"),
         ("qt_calendar_nextmonth", "right", "Next month"),
