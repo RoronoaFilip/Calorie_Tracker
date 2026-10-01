@@ -15,7 +15,10 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     application = QApplication.instance() or QApplication(sys.argv)
-    services = build_services(default_database_path())
+    services = build_services(
+        default_database_path(),
+        seed_source_path=project_root / "macros_base - All Foods.csv",
+    )
     window = MainWindow(services)
     window.show()
     return application.exec()

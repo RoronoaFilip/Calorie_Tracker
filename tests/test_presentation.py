@@ -8,13 +8,15 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtCore import QDate, QTimer, Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
 
 from calorie_tracker.bootstrap import build_services
 from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
+from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.main_window import MainWindow
 from calorie_tracker.presentation.views.diary_view import AddEntryDialog
 import app
@@ -70,6 +72,18 @@ class PresentationTests(unittest.TestCase):
         self.assertTrue(dialog.save_button.isEnabled())
         dialog.close()
 
+    def test_recipe_ingredient_picker_shows_seeded_basic_foods_without_ice_creams(self):
+        source = Path(__file__).resolve().parents[1] / "macros_base - All Foods.csv"
+        self.services.importer.apply(self.services.importer.preview(source))
+        dialog = RecipeDialog(self.services.catalogue, self.services.foods)
+
+        names = [dialog.food_picker.itemText(index) for index in range(dialog.food_picker.count())]
+        self.assertEqual(len(names), 26)
+        self.assertIn("Chia seeds", names)
+        self.assertNotIn("Cocoa Ice Cream", names)
+        self.assertNotIn("Vanilla ice cream", names)
+        dialog.close()
+
     def test_invalid_recipe_inputs_show_field_error_and_disable_save(self):
         dialog = RecipeDialog(self.services.catalogue, self.services.foods)
 
@@ -84,6 +98,9 @@ class PresentationTests(unittest.TestCase):
             QTimer.singleShot(0, self.application.quit)
             self.assertEqual(app.main(), 0)
         self.assertTrue(database_path.is_file())
+        seeded_services = build_services(database_path)
+        self.assertEqual(len(seeded_services.foods.search()), 26)
+        self.assertEqual(seeded_services.recipes.search(), ())
 
     def test_diary_view_shows_meals_totals_and_adds_food_automatically(self):
         diary = self.window.diary_view
@@ -139,6 +156,36 @@ class PresentationTests(unittest.TestCase):
 
         self.assertEqual(self.window.diary_view.selected_date, "2026-10-01")
         self.assertEqual(self.window._stack.currentIndex(), 0)
+
+    def test_calendar_marks_populated_days_without_filling_day_cells(self):
+        self.services.diary.add_item("2026-10-01", "Breakfast", "oats", Decimal("100"))
+        self.window.calendar_view.set_month(2026, 10)
+
+        format_for_day = self.window.calendar_view.calendar.dateTextFormat(QDate(2026, 10, 1))
+        self.assertTrue(format_for_day.fontUnderline())
+        self.assertEqual(format_for_day.background().style(), Qt.BrushStyle.NoBrush)
+        self.assertFalse(self.window.calendar_view.calendar.isGridVisible())
+        self.assertLessEqual(self.window.calendar_view.calendar.maximumSize().width(), 500)
+        self.assertLessEqual(self.window.calendar_view.calendar.maximumSize().height(), 360)
+
+    def test_form_controls_use_dark_text_on_light_backgrounds(self):
+        dialog = FoodDialog(self.window)
+        dialog.show()
+        self.application.processEvents()
+        field = dialog.findChild(QLineEdit)
+
+        self.assertEqual(field.palette().color(field.foregroundRole()), QColor("#243041"))
+        self.assertEqual(field.palette().color(field.backgroundRole()), QColor("#f1f5fb"))
+        self.assertIn("QDialog", self.window.styleSheet())
+        dialog.close()
+
+    def test_diary_meal_cards_have_distinct_tinted_backgrounds(self):
+        colors = {
+            self.window.diary_view.meal_panels[meal].styleSheet()
+            for meal in self.window.diary_view.meal_panels
+        }
+        self.assertEqual(len(colors), 4)
+        self.assertTrue(all("background: #" in value for value in colors))
 
     def test_settings_save_optional_targets_and_diary_shows_target_progress(self):
         settings = self.window.settings_view

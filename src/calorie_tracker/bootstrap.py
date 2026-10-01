@@ -42,7 +42,10 @@ def _configure_logging(data_dir: Path) -> None:
         logger.setLevel(logging.INFO)
 
 
-def build_services(database_path: Path | str) -> ApplicationServices:
+def build_services(
+    database_path: Path | str,
+    seed_source_path: Path | str | None = None,
+) -> ApplicationServices:
     path = Path(database_path)
     database = Database(path)
     database.initialize()
@@ -54,6 +57,25 @@ def build_services(database_path: Path | str) -> ApplicationServices:
     catalogue = CatalogueService(foods, recipes)
     diary = DiaryService(foods, recipes, diary_repository)
     importer = CsvFoodImporter(foods)
+    if seed_source_path is not None and settings.get_json("initial_food_seed_v1") is None:
+        source = Path(seed_source_path)
+        if source.is_file():
+            try:
+                preview = importer.preview(source)
+                result = importer.apply(preview)
+                settings.set_json("initial_food_seed_v1", {
+                    "source": source.name,
+                    "imported": result.imported,
+                    "completed": True,
+                })
+                logging.getLogger("calorie_tracker").info(
+                    "Initial food catalogue seeded: imported=%s existing=%s conflicts=%s",
+                    result.imported, result.already_present, result.name_conflicts,
+                )
+            except (OSError, ValueError):
+                logging.getLogger("calorie_tracker").exception(
+                    "Initial food catalogue seed failed for %s", source
+                )
     backup = BackupService(database, path.parent / "backups")
     return ApplicationServices(database, foods, recipes, diary_repository, settings, catalogue, diary, importer, backup)
 

@@ -154,10 +154,20 @@ class DiaryView(QWidget):
 
         self.macro_cards: dict[str, tuple[QLabel, QProgressBar]] = {}
         card_row = QHBoxLayout()
+        card_colors = {
+            "calories": ("#fff0d8", "#eed8b5"),
+            "protein": ("#e0f2e9", "#c6e3d3"),
+            "carbohydrates": ("#e4ecff", "#cad8f4"),
+            "fat": ("#f2e8f5", "#dfcde6"),
+        }
         for key, caption, unit in (("calories", "Calories", "kcal"), ("protein", "Protein", "g"),
                                    ("carbohydrates", "Carbs", "g"), ("fat", "Fat", "g")):
             card = QFrame()
             card.setObjectName("card")
+            background, border = card_colors[key]
+            card.setStyleSheet(
+                f"QFrame#card {{ background: {background}; border: 1px solid {border}; border-radius: 13px; }}"
+            )
             card_layout = QVBoxLayout(card)
             label = QLabel(caption)
             label.setStyleSheet("color: #738094; font-size: 12px;")
@@ -187,9 +197,19 @@ class DiaryView(QWidget):
         self.meal_layout.setSpacing(12)
         self.meal_panels: dict[str, QWidget] = {}
         self.meal_entries: dict[str, QVBoxLayout] = {}
+        meal_colors = {
+            "Breakfast": ("#fff5e5", "#eddfc8"),
+            "Lunch": ("#e7f3eb", "#d0e4d6"),
+            "Dinner": ("#e8effa", "#d1ddef"),
+            "Snacks": ("#f1eafa", "#ded1ee"),
+        }
         for meal in MEALS:
             panel = QFrame()
             panel.setObjectName("card")
+            background, border = meal_colors[meal]
+            panel.setStyleSheet(
+                f"QFrame#card {{ background: {background}; border: 1px solid {border}; border-radius: 13px; }}"
+            )
             panel_layout = QVBoxLayout(panel)
             panel_layout.setContentsMargins(16, 12, 16, 12)
             heading = QHBoxLayout()

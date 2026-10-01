@@ -1,7 +1,7 @@
 from datetime import date
 
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtGui import QTextCharFormat
+from PySide6.QtGui import QColor, QTextCharFormat
 from PySide6.QtWidgets import (
     QCalendarWidget,
     QHBoxLayout,
@@ -38,13 +38,15 @@ class CalendarView(QWidget):
         controls.addWidget(today)
         layout.addLayout(controls)
         self.calendar = QCalendarWidget()
-        self.calendar.setGridVisible(True)
+        self.calendar.setGridVisible(False)
+        self.calendar.setMaximumSize(500, 360)
         self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
         self.calendar.setAccessibleName("Diary history calendar")
         self.calendar.setToolTip("Dates with diary entries are highlighted in blue")
         self.calendar.clicked.connect(self._date_clicked)
         self.calendar.currentPageChanged.connect(lambda _year, _month: self.refresh())
-        layout.addWidget(self.calendar, 1)
+        layout.addWidget(self.calendar, alignment=Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        layout.addStretch(1)
         self.refresh()
 
     def set_month(self, year: int, month: int) -> None:
@@ -64,9 +66,9 @@ class CalendarView(QWidget):
         self.populated_dates = self.services.diary.populated_dates(start, end)
         self.calendar.setDateTextFormat(QDate(), QTextCharFormat())
         marker = QTextCharFormat()
-        marker.setBackground(Qt.GlobalColor.cyan)
-        marker.setForeground(Qt.GlobalColor.darkBlue)
+        marker.setForeground(QColor("#4f68c5"))
         marker.setFontWeight(600)
+        marker.setFontUnderline(True)
         for value in self.populated_dates:
             parsed = date.fromisoformat(value)
             self.calendar.setDateTextFormat(QDate(parsed.year, parsed.month, parsed.day), marker)

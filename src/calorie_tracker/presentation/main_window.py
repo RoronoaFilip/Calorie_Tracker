@@ -85,23 +85,44 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._stack, 1)
         self.setCentralWidget(root)
         self.setStyleSheet("""
-            QMainWindow, QWidget#mainContent { background: #f5f6f8; color: #243041; }
-            QWidget#navigationRail { background: #ffffff; border-right: 1px solid #e4e8ee; }
-            QLabel#brandLabel { color: #172538; font-size: 21px; font-weight: 700; }
-            QLabel#privacyHint { color: #788495; font-size: 11px; }
+            QWidget { color: #243041; }
+            QMainWindow, QWidget#mainContent { background: #edf2f9; color: #243041; }
+            QDialog { background: #e8eef7; color: #243041; }
+            QWidget#navigationRail { background: #263752; border-right: 1px solid #1e2c43; }
+            QLabel#brandLabel { color: #ffffff; font-size: 21px; font-weight: 700; }
+            QLabel#privacyHint { color: #d0daea; font-size: 11px; }
+            QLabel { background: transparent; color: #243041; }
             QPushButton { border: 0; border-radius: 10px; padding: 12px 13px; text-align: left;
-                         background: transparent; color: #596577; font-size: 14px; }
-            QPushButton:hover { background: #f2f5fb; }
-            QPushButton:checked { background: #e9eefc; color: #3f5fc3; font-weight: 600;
-                                  border-left: 3px solid #536fd1; }
-            QPushButton:focus { outline: 2px solid #536fd1; }
-            QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox { background: #ffffff; border: 1px solid #dbe1e9;
-                border-radius: 7px; padding: 7px; min-height: 20px; }
-            QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid #536fd1; }
+                         background: #e2eaf6; color: #293a54; font-size: 14px; }
+            QPushButton:hover { background: #d1def1; }
+            QPushButton#navDiary, QPushButton#navCalendar, QPushButton#navFoods, QPushButton#navSettings {
+                background: transparent; color: #d6e0ef; }
+            QPushButton#navDiary:hover, QPushButton#navCalendar:hover, QPushButton#navFoods:hover,
+            QPushButton#navSettings:hover { background: #344965; color: #ffffff; }
+            QPushButton#navDiary:checked, QPushButton#navCalendar:checked, QPushButton#navFoods:checked,
+            QPushButton#navSettings:checked { background: #506da4; color: #ffffff; font-weight: 600;
+                                              border-left: 3px solid #b9d0ff; }
+            QPushButton:focus { outline: 2px solid #7899d5; }
+            QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QDateEdit, QTableWidget, QListWidget {
+                background: #f1f5fb; color: #243041; border: 1px solid #c2cede;
+                border-radius: 7px; padding: 7px; min-height: 20px;
+                selection-background-color: #dce6fb; selection-color: #243041; }
+            QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus, QDateEdit:focus {
+                border: 1px solid #536fd1; }
+            QComboBox QAbstractItemView { background: #f1f5fb; color: #243041;
+                selection-background-color: #dce6fb; selection-color: #243041; }
+            QHeaderView::section { background: #dfe8f5; color: #344154; border: 0; padding: 6px; }
+            QCalendarWidget QWidget#qt_calendar_navigationbar { background: #dfe8f5; }
+            QCalendarWidget QToolButton { color: #243041; background: transparent; }
+            QCalendarWidget QTableView { background: #f1f5fb; color: #243041; gridline-color: #edf0f5;
+                selection-background-color: #e3eaf9; selection-color: #243041; }
+            QCalendarWidget QAbstractItemView:enabled { color: #243041; selection-background-color: #e3eaf9;
+                selection-color: #243041; }
+            QStatusBar { background: #dfe8f5; color: #344154; }
             QPushButton#primaryButton { background: #4f68c5; color: white; font-weight: 600; }
             QPushButton#primaryButton:hover { background: #4059b5; }
             QPushButton#dangerButton { color: #b53d48; }
-            QFrame#card { background: #ffffff; border: 1px solid #e6e9ef; border-radius: 13px; }
+            QFrame#card { background: #e5edf8; border: 1px solid #d1dceb; border-radius: 13px; }
         """)
 
     @staticmethod
