@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QDate, QTimer, Qt
+from PySide6.QtCore import QDate, QRect, QTimer, Qt
 from PySide6.QtGui import QColor
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton
 
 from calorie_tracker.bootstrap import build_services
@@ -165,8 +166,24 @@ class PresentationTests(unittest.TestCase):
         self.assertTrue(format_for_day.fontUnderline())
         self.assertEqual(format_for_day.background().style(), Qt.BrushStyle.NoBrush)
         self.assertFalse(self.window.calendar_view.calendar.isGridVisible())
-        self.assertLessEqual(self.window.calendar_view.calendar.maximumSize().width(), 500)
-        self.assertLessEqual(self.window.calendar_view.calendar.maximumSize().height(), 360)
+        self.assertGreater(self.window.calendar_view.calendar.maximumSize().width(), 500)
+        self.assertGreater(self.window.calendar_view.calendar.maximumSize().height(), 360)
+
+    def test_calendar_draws_a_red_dot_on_today(self):
+        calendar = self.window.calendar_view.calendar
+        image = QImage(100, 80, QImage.Format.Format_ARGB32)
+        image.fill(QColor("#f1f5fb"))
+        painter = QPainter(image)
+        calendar.paintCell(painter, QRect(0, 0, 100, 80), QDate.currentDate())
+        painter.end()
+
+        red_pixels = sum(
+            1 for y in range(image.height()) for x in range(image.width())
+            if image.pixelColor(x, y).red() > 180
+            and image.pixelColor(x, y).green() < 120
+            and image.pixelColor(x, y).blue() < 120
+        )
+        self.assertGreater(red_pixels, 0)
 
     def test_form_controls_use_dark_text_on_light_backgrounds(self):
         dialog = FoodDialog(self.window)

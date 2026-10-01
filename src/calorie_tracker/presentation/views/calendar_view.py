@@ -1,17 +1,31 @@
 from datetime import date
 
-from PySide6.QtCore import QDate, Qt
-from PySide6.QtGui import QColor, QTextCharFormat
+from PySide6.QtCore import QDate, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QTextCharFormat
 from PySide6.QtWidgets import (
     QCalendarWidget,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from calorie_tracker.bootstrap import ApplicationServices
+
+
+class DiaryCalendarWidget(QCalendarWidget):
+    def paintCell(self, painter: QPainter, rect, day: QDate) -> None:
+        super().paintCell(painter, rect, day)
+        if day != QDate.currentDate():
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#d64545"))
+        painter.drawEllipse(QRectF(rect.center().x() - 4, rect.bottom() - 11, 8, 8))
+        painter.restore()
 
 
 class CalendarView(QWidget):
@@ -37,16 +51,15 @@ class CalendarView(QWidget):
         today.clicked.connect(self.show_today)
         controls.addWidget(today)
         layout.addLayout(controls)
-        self.calendar = QCalendarWidget()
+        self.calendar = DiaryCalendarWidget()
         self.calendar.setGridVisible(False)
-        self.calendar.setMaximumSize(500, 360)
+        self.calendar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
         self.calendar.setAccessibleName("Diary history calendar")
-        self.calendar.setToolTip("Dates with diary entries are highlighted in blue")
+        self.calendar.setToolTip("Today has a red dot. Underlined blue dates contain diary entries.")
         self.calendar.clicked.connect(self._date_clicked)
         self.calendar.currentPageChanged.connect(lambda _year, _month: self.refresh())
-        layout.addWidget(self.calendar, alignment=Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        layout.addStretch(1)
+        layout.addWidget(self.calendar, 1)
         self.refresh()
 
     def set_month(self, year: int, month: int) -> None:
