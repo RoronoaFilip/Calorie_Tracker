@@ -6,6 +6,7 @@ from pathlib import Path
 from .application.catalogue import CatalogueService
 from .application.diary import DiaryService
 from .infrastructure.database import Database
+from .infrastructure.backup import BackupService
 from .infrastructure.importer import CsvFoodImporter
 from .infrastructure.repositories import (
     DiaryRepository,
@@ -25,6 +26,7 @@ class ApplicationServices:
     catalogue: CatalogueService
     diary: DiaryService
     importer: CsvFoodImporter
+    backup: BackupService
 
 
 def _configure_logging(data_dir: Path) -> None:
@@ -52,7 +54,8 @@ def build_services(database_path: Path | str) -> ApplicationServices:
     catalogue = CatalogueService(foods, recipes)
     diary = DiaryService(foods, recipes, diary_repository)
     importer = CsvFoodImporter(foods)
-    return ApplicationServices(database, foods, recipes, diary_repository, settings, catalogue, diary, importer)
+    backup = BackupService(database, path.parent / "backups")
+    return ApplicationServices(database, foods, recipes, diary_repository, settings, catalogue, diary, importer, backup)
 
 
 def default_database_path() -> Path:

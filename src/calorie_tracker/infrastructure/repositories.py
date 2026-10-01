@@ -280,3 +280,13 @@ class DiaryRepository:
                 (start_date, end_date),
             ).fetchall()
         return frozenset(row["diary_date"] for row in rows)
+
+    def recent_items(self, limit: int = 8) -> tuple[tuple[str, str, str], ...]:
+        with self.database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT c.id, c.name, c.kind FROM recent_foods r
+                   JOIN catalogue_items c ON c.id=r.catalogue_item_id
+                   WHERE c.archived=0 ORDER BY r.last_used_at DESC, c.name LIMIT ?""",
+                (max(0, min(limit, 50)),),
+            ).fetchall()
+        return tuple((row["id"], row["name"], row["kind"]) for row in rows)

@@ -11,6 +11,9 @@ from PySide6.QtWidgets import (
 
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.presentation.views.foods_view import FoodsView
+from calorie_tracker.presentation.views.diary_view import DiaryView
+from calorie_tracker.presentation.views.calendar_view import CalendarView
+from calorie_tracker.presentation.views.settings_view import SettingsView
 
 
 class MainWindow(QMainWindow):
@@ -67,10 +70,14 @@ class MainWindow(QMainWindow):
         privacy.setObjectName("privacyHint")
         rail_layout.addWidget(privacy)
 
-        self._stack.addWidget(self._placeholder("Diary", "Your day at a glance"))
-        self._stack.addWidget(self._placeholder("Calendar", "Browse past days"))
-        self._stack.addWidget(FoodsView(self.services, self.notify))
-        self._stack.addWidget(self._placeholder("Settings", "Personal targets and local preferences"))
+        self.diary_view = DiaryView(self.services, self.notify)
+        self._stack.addWidget(self.diary_view)
+        self.calendar_view = CalendarView(self.services, self._open_calendar_date)
+        self._stack.addWidget(self.calendar_view)
+        self.foods_view = FoodsView(self.services, self.notify)
+        self._stack.addWidget(self.foods_view)
+        self.settings_view = SettingsView(self.services, self.notify)
+        self._stack.addWidget(self.settings_view)
         for index, (label, _, _) in enumerate(self.NAV_ITEMS):
             self._view_indexes[label] = index
 
@@ -116,6 +123,15 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(self._view_indexes[page])
         for label, button in self._nav_buttons.items():
             button.setChecked(label == page)
+
+    def _open_calendar_date(self, value: str) -> None:
+        self.diary_view.set_date(value)
+        self._select_view("Diary")
+
+    def refresh_after_restore(self) -> None:
+        self.diary_view.refresh()
+        self.calendar_view.refresh()
+        self.foods_view.refresh()
 
     def notify(self, message: str, timeout_ms: int = 3500) -> None:
         self.statusBar().showMessage(message, timeout_ms)

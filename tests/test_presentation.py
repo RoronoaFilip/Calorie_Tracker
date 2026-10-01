@@ -16,6 +16,7 @@ from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
 from calorie_tracker.presentation.main_window import MainWindow
+from calorie_tracker.presentation.views.diary_view import AddEntryDialog
 import app
 
 
@@ -83,6 +84,90 @@ class PresentationTests(unittest.TestCase):
             QTimer.singleShot(0, self.application.quit)
             self.assertEqual(app.main(), 0)
         self.assertTrue(database_path.is_file())
+
+    def test_diary_view_shows_meals_totals_and_adds_food_automatically(self):
+        diary = self.window.diary_view
+        diary.set_date("2026-10-01")
+        self.assertEqual(diary.day_total_label.text(), "0 kcal")
+        self.assertEqual(len(diary.meal_panels), 4)
+
+        diary.add_catalogue_item("Breakfast", "oats", Decimal("50"))
+
+        entries = self.services.diary.entries_for_day("2026-10-01")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].display_name, "Oats")
+        self.assertIn("190", diary.day_total_label.text())
+
+    def test_diary_picker_places_recent_foods_above_search_results(self):
+        self.services.diary.add_item("2026-10-01", "Breakfast", "oats", Decimal("40"))
+        picker = AddEntryDialog(self.services, "Lunch")
+        self.addCleanup(picker.close)
+
+        self.assertEqual(picker.recent_results.count(), 1)
+        self.assertEqual(picker.recent_results.item(0).data(256), "oats")
+        self.assertGreater(picker.results.count(), 0)
+        self.assertTrue(picker.add_button.isEnabled())
+
+    def test_diary_entry_edit_save_cancel_repeat_delete_and_undo(self):
+        entry = self.services.diary.add_item("2026-10-01", "Lunch", "oats", Decimal("100"))
+        diary = self.window.diary_view
+        diary.set_date("2026-10-01")
+        diary.begin_edit(entry.id)
+        diary.edit_amount_input.setValue(150)
+        diary.cancel_edit()
+        self.assertEqual(self.services.diary.entries_for_day("2026-10-01")[0].amount_g, Decimal("100"))
+
+        diary.begin_edit(entry.id)
+        diary.edit_amount_input.setValue(150)
+        diary.save_edit()
+        self.assertEqual(self.services.diary.entries_for_day("2026-10-01")[0].amount_g, Decimal("150"))
+
+        diary.repeat_entry(entry.id)
+        self.assertEqual(len(self.services.diary.entries_for_day("2026-10-01")), 2)
+        diary.delete_entry(entry.id, confirmed=True)
+        self.assertEqual(len(self.services.diary.entries_for_day("2026-10-01")), 1)
+        diary.undo_delete()
+        self.assertEqual(len(self.services.diary.entries_for_day("2026-10-01")), 2)
+
+    def test_calendar_marks_populated_days_and_routes_selected_day_to_diary(self):
+        self.services.diary.add_item("2026-10-01", "Breakfast", "oats", Decimal("100"))
+        calendar_page = self.window.calendar_view
+        calendar_page.set_month(2026, 10)
+
+        self.assertIn("2026-10-01", calendar_page.populated_dates)
+        calendar_page.select_date("2026-10-01")
+
+        self.assertEqual(self.window.diary_view.selected_date, "2026-10-01")
+        self.assertEqual(self.window._stack.currentIndex(), 0)
+
+    def test_settings_save_optional_targets_and_diary_shows_target_progress(self):
+        settings = self.window.settings_view
+        settings.set_target("calories", 2000)
+        settings.set_target("protein", 120)
+        settings.save_targets()
+        self.assertEqual(self.services.settings.get_json("daily_targets"), {
+            "calories": 2000.0, "protein": 120.0,
+        })
+
+        self.services.diary.add_item("2026-10-01", "Breakfast", "oats", Decimal("100"))
+        self.window.diary_view.set_date("2026-10-01")
+        self.assertEqual(self.window.diary_view.macro_cards["calories"][1].value(), 19)
+
+        settings.set_target("protein", 0)
+        settings.save_targets()
+        self.assertEqual(self.services.settings.get_json("daily_targets"), {"calories": 2000.0})
+
+    def test_settings_restore_refreshes_open_views_after_safety_backup(self):
+        backup_path = Path(self.temp_dir.name) / "saved.sqlite3"
+        self.services.backup.export(backup_path)
+        self.services.foods.archive("oats")
+        self.assertFalse(self.services.foods.get("oats").active)
+
+        safety_copy = self.window.settings_view.restore_backup(str(backup_path))
+
+        self.assertTrue(safety_copy.is_file())
+        self.assertTrue(self.services.foods.get("oats").active)
+        self.assertEqual(self.window.foods_view.items.count(), 1)
 
 
 if __name__ == "__main__":
