@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from calorie_tracker.domain.nutrition import Nutrients
+from calorie_tracker.domain.diary import DiaryEntry
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient, RecipePreview, preview_recipe
 from .database import Database
 
@@ -209,3 +210,73 @@ class RecipeRepository:
                 "UPDATE catalogue_items SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE id=? AND kind='recipe'",
                 (recipe_id,),
             )
+
+
+class DiaryRepository:
+    def __init__(self, database: Database):
+        self.database = database
+
+    @staticmethod
+    def _entry_from_row(row: sqlite3.Row) -> DiaryEntry:
+        return DiaryEntry(
+            row["id"], row["diary_date"], row["meal"], row["catalogue_item_id"],
+            row["display_name"], Decimal(row["amount_g"]),
+            _nutrients_from_json(row["nutrients_snapshot_json"]),
+        )
+
+    def add(self, entry: DiaryEntry) -> None:
+        with self.database.transaction() as connection:
+            connection.execute(
+                """INSERT INTO diary_entries
+                   (id, diary_date, meal, catalogue_item_id, display_name, amount_g, nutrients_snapshot_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (entry.id, entry.diary_date, entry.meal, entry.catalogue_item_id, entry.display_name,
+                 str(entry.amount_g), _nutrients_to_json(entry.nutrients_per_100g)),
+            )
+            if entry.catalogue_item_id is not None:
+                connection.execute(
+                    """INSERT INTO recent_foods(catalogue_item_id, last_used_at) VALUES (?, CURRENT_TIMESTAMP)
+                       ON CONFLICT(catalogue_item_id) DO UPDATE SET last_used_at=CURRENT_TIMESTAMP""",
+                    (entry.catalogue_item_id,),
+                )
+
+    def get(self, entry_id: str) -> DiaryEntry | None:
+        with self.database.read_connection() as connection:
+            row = connection.execute("SELECT * FROM diary_entries WHERE id=?", (entry_id,)).fetchone()
+        return None if row is None else self._entry_from_row(row)
+
+    def entries_on(self, diary_date: str) -> tuple[DiaryEntry, ...]:
+        with self.database.read_connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM diary_entries WHERE diary_date=? ORDER BY rowid", (diary_date,)
+            ).fetchall()
+        return tuple(self._entry_from_row(row) for row in rows)
+
+    def update_amount(self, entry: DiaryEntry) -> None:
+        with self.database.transaction() as connection:
+            cursor = connection.execute(
+                """UPDATE diary_entries SET amount_g=?, updated_at=CURRENT_TIMESTAMP
+                   WHERE id=?""",
+                (str(entry.amount_g), entry.id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"Diary entry not found: {entry.id}")
+
+    def delete(self, entry_id: str) -> DiaryEntry | None:
+        with self.database.transaction() as connection:
+            row = connection.execute("SELECT * FROM diary_entries WHERE id=?", (entry_id,)).fetchone()
+            if row is None:
+                return None
+            connection.execute("DELETE FROM diary_entries WHERE id=?", (entry_id,))
+        return self._entry_from_row(row)
+
+    def restore(self, entry: DiaryEntry) -> None:
+        self.add(entry)
+
+    def populated_dates(self, start_date: str, end_date: str) -> frozenset[str]:
+        with self.database.read_connection() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT diary_date FROM diary_entries WHERE diary_date BETWEEN ? AND ?",
+                (start_date, end_date),
+            ).fetchall()
+        return frozenset(row["diary_date"] for row in rows)
