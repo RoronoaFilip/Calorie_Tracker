@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QDate, QRect, QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton, QToolButton
+from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox, QPushButton, QToolButton
 
 from calorie_tracker.bootstrap import build_services
 from calorie_tracker.domain.nutrition import Nutrients
@@ -57,11 +57,14 @@ class PresentationTests(unittest.TestCase):
         self.assertTrue(calendar.isChecked())
         self.assertEqual(self.window._stack.currentIndex(), 1)
 
-    def test_recipe_yield_warning_is_visible_without_blocking_valid_save(self):
+    def test_recipe_yield_and_per_100g_preview_follow_ingredient_totals(self):
         self.services.catalogue.save_recipe("recipe-1", RecipeDraft(
             "Oat mix", Decimal("100"), (RecipeIngredient(
                 self.services.foods.get("oats"), Decimal("200")
             ),),
+        ))
+        self.services.foods.save(Food(
+            "milk", "Milk", Nutrients(calories=Decimal("100"))
         ))
         dialog = RecipeDialog(
             self.services.catalogue, self.services.foods, recipe=self.services.recipes.get("recipe-1")
@@ -69,10 +72,42 @@ class PresentationTests(unittest.TestCase):
         dialog.show()
         self.application.processEvents()
 
-        self.assertTrue(dialog.warning_label.isVisible())
-        self.assertIn("differs from", dialog.warning_label.text())
+        self.assertTrue(dialog.yield_input.isReadOnly())
+        self.assertEqual(dialog.yield_input.value(), 200)
+        self.assertFalse(dialog.warning_label.isVisible())
+        self.assertIn("Per 100 g: 380 kcal", dialog.preview_label.text())
+
+        milk_index = dialog.food_picker.findData("milk")
+        dialog.food_picker.setCurrentIndex(milk_index)
+        dialog.ingredient_amount.setValue(100)
+        dialog.add_ingredient_button.click()
+
+        self.assertEqual(dialog.yield_input.value(), 300)
+        self.assertIn("Per 100 g: 287 kcal", dialog.preview_label.text())
+
+        dialog.ingredient_table.cellWidget(1, 2).click()
+
+        self.assertEqual(dialog.yield_input.value(), 200)
+        self.assertIn("Per 100 g: 380 kcal", dialog.preview_label.text())
         self.assertTrue(dialog.save_button.isEnabled())
         dialog.close()
+
+    def test_catalogue_archive_button_names_and_archives_its_food(self):
+        view = self.window.foods_view
+        item = next(
+            view.items.item(index)
+            for index in range(view.items.count())
+            if view.items.item(index).data(Qt.ItemDataRole.UserRole) == ("food", "oats")
+        )
+        view.items.setCurrentItem(item)
+        row = view.items.itemWidget(item)
+        self.assertFalse(row.archive_button.isHidden())
+
+        with patch("calorie_tracker.presentation.views.foods_view.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes) as confirm:
+            row.archive_button.click()
+
+        self.assertNotIn("oats", {food.id for food in self.services.foods.search()})
+        self.assertIn("Oats", confirm.call_args.args[2])
 
     def test_recipe_ingredient_picker_shows_seeded_basic_foods_without_ice_creams(self):
         source = Path(__file__).resolve().parents[1] / "food_macros_seed.csv"

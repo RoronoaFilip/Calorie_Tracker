@@ -3,6 +3,7 @@ import uuid
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -47,8 +48,14 @@ class RecipeDialog(QDialog):
         self.name_input = QLineEdit(recipe.draft.name if recipe else "")
         self.name_input.setAccessibleName("Recipe name")
         form.addRow("Recipe name", self.name_input)
-        self.yield_input = amount_field(float(recipe.draft.yield_g) if recipe else 1)
-        self.yield_input.setAccessibleName("Final recipe yield in grams")
+        ingredient_weight = sum((item.amount_g for item in self.ingredients), Decimal("0"))
+        self.yield_input = amount_field(float(ingredient_weight))
+        self.yield_input.setMaximum(max(100_000, float(ingredient_weight)))
+        self.yield_input.setDecimals(6)
+        self.yield_input.setReadOnly(True)
+        self.yield_input.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.yield_input.setAccessibleName("Calculated final recipe yield in grams")
+        self.yield_input.setToolTip("Automatically calculated from the ingredient amounts below")
         form.addRow("Final yield", self.yield_input)
         outer.addLayout(form)
 
@@ -107,7 +114,6 @@ class RecipeDialog(QDialog):
         outer.addWidget(buttons)
 
         self.name_input.textChanged.connect(self._refresh_validation)
-        self.yield_input.valueChanged.connect(self._refresh_validation)
         self._render_ingredients()
         self._refresh_validation()
 
@@ -123,12 +129,19 @@ class RecipeDialog(QDialog):
             return
         self.ingredients.append(RecipeIngredient(food, Decimal(str(self.ingredient_amount.value()))))
         self._render_ingredients()
+        self._update_calculated_yield()
         self._refresh_validation()
 
     def _remove_ingredient(self, index: int) -> None:
         del self.ingredients[index]
         self._render_ingredients()
+        self._update_calculated_yield()
         self._refresh_validation()
+
+    def _update_calculated_yield(self) -> None:
+        ingredient_weight = sum((item.amount_g for item in self.ingredients), Decimal("0"))
+        self.yield_input.setMaximum(max(100_000, float(ingredient_weight)))
+        self.yield_input.setValue(float(ingredient_weight))
 
     def _render_ingredients(self) -> None:
         self.ingredient_table.setRowCount(len(self.ingredients))

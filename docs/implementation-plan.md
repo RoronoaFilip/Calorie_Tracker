@@ -154,7 +154,7 @@ The importer and diary must agree on what a quantity means. Before writing the i
 
 For a verified per-100 g food, store its nutrient values per 100 g and let diary quantity be entered in grams. Compute each entry as `per_100_value × quantity_g / 100`. If a food is per 100 ml, retain that basis and accept ml; never convert g to ml without a density value. Recipe ingredients must use compatible, explicit units. Do not convert piece, tablespoon, or cup to mass unless a food-specific conversion is supplied. The first version can keep the quantity workflow simple by supporting g and ml and documenting that limitation.
 
-Decide how recipe output is measured. Recommended v1 behavior: user specifies the final edible recipe yield in g or ml after preparation, then the app calculates recipe nutrition per 100 g/ml from the ingredient totals divided by the final yield. This handles water loss, draining, and cooking yield more accurately than assuming ingredient weight equals finished weight. If yield is omitted, require confirmation and clearly label the result as based on the sum of ingredient quantities.
+Recipe final yield is automatically calculated as the sum of ingredient amounts. The app calculates nutrition per 100 g from the summed ingredient nutrients and that total yield; the recipe editor displays the calculated yield as read-only.
 
 Keep full precision in storage/calculation; round only in display (for example calories to whole numbers and macros to one decimal place). Document this consistently so adding rounded rows does not produce totals that disagree with the displayed day total.
 
@@ -262,7 +262,7 @@ Design the application as a calm, bright daily dashboard rather than a spreadshe
 
 - Calendar view uses a month grid with previous/next controls, a clear Today shortcut, and subtle dots or small totals for dates with entries. Selecting a date opens the diary view for that date. Make today, the selected date, and dates with data visually distinct.
 - Foods view has a search field, filter chips or simple category filter if useful, and a readable list/table with name, basis unit, and per-100 nutrition. Put **Add food** and **Create recipe** in a prominent top action area. Food and recipe create/edit use one shared management window with a clear type selector, not separate disconnected tools.
-- Recipe editor presents an ingredient list with amount/unit, an **Add ingredient** searchable picker, yield field, and calculated nutrition preview. Keep calculations visible before save.
+- Recipe editor presents an ingredient list with amount/unit, an **Add ingredient** searchable picker, calculated read-only yield, and calculated nutrition per 100 g. Keep calculations visible before save.
 - Settings stay intentionally small: optional daily macro targets, preferred display precision/unit where applicable, and a local backup/export action if included. Avoid burying daily logging controls here.
 - Date pickers and other arrow controls use visible, accessible indicators. Calendar month/year popup menus use a light palette with readable text.
 
@@ -309,7 +309,7 @@ Use this short list as the implementation checklist when sections above are deta
 - **Architecture:** practical layered structure with presentation, application services, domain rules, and SQLite/import infrastructure. Keep `app.py` as a small launcher; do not add a framework or abstraction layer beyond what these boundaries need.
 - **Data:** SQLite is the live local store under Git-ignored `data/`. JSON is an optional export/backup format, not the primary database.
 - **Food values:** import only explicitly mapped `*/100` CSV columns. Confirm the units/basis from the actual file before enabling conversions. Store full precision and round only for display.
-- **Recipes:** in v1, compose from basic foods only; require explicit final yield and compatible units; show calculated nutrition before save.
+- **Recipes:** in v1, compose from basic foods only; calculate final yield from ingredient grams and show calculated nutrition per 100 g before save.
 - **History:** diary records retain a snapshot of nutrition at log time. Editing a logged amount uses its saved snapshot. Catalogue edits only affect future entries.
 - **Fast logging:** searchable picker with recent items, one-click repeat, automatic add, and immediate totals. Add save confirmation; show failures without losing the form.
 - **Safety:** edits have Save/Cancel, deletes have confirmation, referenced catalogue entries are archived, and backups never replace data without validation and a safety copy.

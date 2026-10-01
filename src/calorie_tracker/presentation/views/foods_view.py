@@ -35,7 +35,7 @@ class FoodsView(QWidget):
         heading = QLabel("Foods & recipes")
         heading.setStyleSheet("font-size: 26px; font-weight: 650; color: #172538;")
         layout.addWidget(heading)
-        description = QLabel("Build your local catalogue. Recipes use basic foods and a measured final yield.")
+        description = QLabel("Build your local catalogue. Recipe yield and nutrition are calculated from ingredients.")
         description.setStyleSheet("color: #738094;")
         layout.addWidget(description)
 
@@ -84,12 +84,12 @@ class FoodsView(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, (kind, item_id))
             item.setToolTip(f"{name}, {label}")
             self.items.addItem(item)
-            row = self._make_catalogue_row(name, label)
+            row = self._make_catalogue_row(name, label, kind, item_id)
             self.items.setItemWidget(item, row)
             item.setSizeHint(row.sizeHint())
         self._on_selection_changed()
 
-    def _make_catalogue_row(self, name: str, detail: str) -> QWidget:
+    def _make_catalogue_row(self, name: str, detail: str, kind: str, item_id: str) -> QWidget:
         row = QWidget()
         row.setObjectName("catalogueRow")
         row.setMinimumHeight(58)
@@ -115,7 +115,10 @@ class FoodsView(QWidget):
         archive.setObjectName("catalogueArchiveButton")
         archive.setAccessibleName(f"Archive {name}")
         archive.setToolTip("Archive")
-        archive.clicked.connect(lambda checked=False: self._archive_selected())
+        archive.clicked.connect(
+            lambda checked=False, item_kind=kind, catalogue_id=item_id, item_name=name:
+            self._archive_catalogue_item(item_kind, catalogue_id, item_name)
+        )
         row.edit_button = edit
         row.archive_button = archive
         layout.addWidget(edit)
@@ -178,11 +181,7 @@ class FoodsView(QWidget):
             self.refresh()
             self.notify("Recipe changes saved. Diary history keeps its original snapshot.")
 
-    def _archive_selected(self) -> None:
-        if self._selected is None:
-            return
-        kind, item_id = self._selected
-        name = self.items.currentItem().text().splitlines()[0]
+    def _archive_catalogue_item(self, kind: str, item_id: str, name: str) -> None:
         answer = QMessageBox.question(
             self, "Archive catalogue item", f"Archive {name}? Existing diary history will be kept.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
