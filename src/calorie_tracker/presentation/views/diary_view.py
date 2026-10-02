@@ -108,6 +108,8 @@ class AddEntryDialog(QDialog):
 
 
 class DiaryView(QWidget):
+    _sixteen_pixel_font = "font-size: 16px;"
+
     def __init__(self, services: ApplicationServices, notify):
         super().__init__()
         self.services = services
@@ -411,7 +413,7 @@ class DiaryView(QWidget):
             if widget:
                 widget.deleteLater()
         edit_amount_widget = QLabel(f"Edit amount for {entry.display_name}")
-        edit_amount_widget.setStyleSheet("font-size: 16px;")
+        edit_amount_widget.setStyleSheet(self._sixteen_pixel_font)
         layout.addWidget(edit_amount_widget)
         self.edit_amount_input = QDoubleSpinBox()
         self.edit_amount_input.setObjectName("editDiaryAmount")
@@ -419,15 +421,15 @@ class DiaryView(QWidget):
         self.edit_amount_input.setRange(0.1, 100000)
         self.edit_amount_input.setDecimals(1)
         self.edit_amount_input.setValue(float(entry.amount_g))
-        self.edit_amount_input.setStyleSheet("font-size: 16px;")
+        self.edit_amount_input.setStyleSheet(self._sixteen_pixel_font)
         layout.addWidget(self.edit_amount_input)
         self._editing_entry_id = entry_id
         save = QPushButton("Save")
         save.clicked.connect(self.save_edit)
-        save.setStyleSheet("font-size: 16px;")
+        save.setStyleSheet(self._sixteen_pixel_font)
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.cancel_edit)
-        cancel.setStyleSheet("font-size: 16px;")
+        cancel.setStyleSheet(self._sixteen_pixel_font)
         layout.addWidget(save)
         layout.addWidget(cancel)
 

@@ -131,7 +131,7 @@ class CsvFoodImporter:
                     correction_fields.append(field)
                     row_errors.append(
                         f"Row {source_row} ({name or 'unnamed food'}): enter a non-negative number in {header[position]}"
-                        + (" (required)." if field in ("calories", "protein", "fat", "carbohydrates") else ".")
+                        + " (required)." if field in ("calories", "protein", "fat", "carbohydrates") else "."
                     )
             if row_errors:
                 numeric_errors = [error for error in row_errors if "enter a non-negative number" in error]
