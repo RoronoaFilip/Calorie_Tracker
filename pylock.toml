@@ -1,0 +1,52 @@
+lock-version = "1.0"
+created-by = "pip"
+
+[[packages]]
+name = "calorie-tracker"
+
+[packages.directory]
+path = "."
+
+[[packages]]
+name = "pyside6"
+version = "6.11.2"
+
+[[packages.wheels]]
+name = "pyside6-6.11.2-cp310-abi3-win_amd64.whl"
+url = "https://files.pythonhosted.org/packages/94/fe/4aea9d30300fff4cda9bb729c1363b9e1095a8544e0d6b57065465e16599/pyside6-6.11.2-cp310-abi3-win_amd64.whl"
+
+[packages.wheels.hashes]
+sha256 = "3201d67e3c10be2eaedd3910ff0f02351eca7e88c95a291cde5e7f2f55ef207f"
+
+[[packages]]
+name = "pyside6-addons"
+version = "6.11.2"
+
+[[packages.wheels]]
+name = "pyside6_addons-6.11.2-cp310-abi3-win_amd64.whl"
+url = "https://files.pythonhosted.org/packages/fb/c1/08bf6594101b42fc88834009f1dac59a983c5b6805c62c5081f077d09b4a/pyside6_addons-6.11.2-cp310-abi3-win_amd64.whl"
+
+[packages.wheels.hashes]
+sha256 = "f449ea4431da20e7b86752cca8d166f93434516fe417f981c27e5f8e1b554407"
+
+[[packages]]
+name = "pyside6-essentials"
+version = "6.11.2"
+
+[[packages.wheels]]
+name = "pyside6_essentials-6.11.2-cp310-abi3-win_amd64.whl"
+url = "https://files.pythonhosted.org/packages/dc/09/d2662684aee4d3f027ff9b1e965f22301bc28ffc5b7f167658508e4475dc/pyside6_essentials-6.11.2-cp310-abi3-win_amd64.whl"
+
+[packages.wheels.hashes]
+sha256 = "c8a29def77032773a30879f7f24415b5395ad08592d147c170824ef4c735dfc1"
+
+[[packages]]
+name = "shiboken6"
+version = "6.11.2"
+
+[[packages.wheels]]
+name = "shiboken6-6.11.2-cp310-abi3-win_amd64.whl"
+url = "https://files.pythonhosted.org/packages/ce/6b/fee1b4814317e4664e318644c9c007676c65a71e5b2b9d3ac4121a94dc0a/shiboken6-6.11.2-cp310-abi3-win_amd64.whl"
+
+[packages.wheels.hashes]
+sha256 = "6ab0eba1c904455df621f9a6df3ca2bb896bab8670572d2bc4e37804ae91f19a"
