@@ -24,9 +24,7 @@ from PySide6.QtWidgets import (
 from calorie_tracker.application.diary import MEALS
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.domain.diary import DiaryEntry
-from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.presentation.control_styles import style_calendar_arrows, style_chevron_button
-from calorie_tracker.infrastructure.diary_csv_importer import DiaryCsvFormatError
 from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog
 
@@ -186,7 +184,7 @@ class DiaryView(QWidget):
             )
             card_layout = QVBoxLayout(card)
             label = QLabel(caption)
-            label.setStyleSheet("color: #738094; font-size: 12px;")
+            label.setStyleSheet("color: #738094; font-size: 18px;")
             value = QLabel(f"0 {unit}")
             value.setObjectName(f"total{key.title()}")
             value.setStyleSheet("font-size: 19px; font-weight: 650; color: #172538;")
@@ -234,10 +232,13 @@ class DiaryView(QWidget):
             panel_layout.setContentsMargins(16, 12, 16, 12)
             heading = QHBoxLayout()
             label = QLabel(meal)
-            label.setStyleSheet("font-size: 16px; font-weight: 650;")
+            label.setStyleSheet(
+                "font-size: 18px; font-weight: 650;"
+            )
+
             subtotal = QLabel("0 kcal")
             subtotal.setObjectName(f"subtotal{meal}")
-            subtotal.setStyleSheet("font-size: 12px; color: #536d95;")
+            subtotal.setStyleSheet("font-size: 16px; color: #536d95;")
             heading.addWidget(label)
             heading.addStretch(1)
             heading.addWidget(subtotal)
@@ -246,6 +247,7 @@ class DiaryView(QWidget):
             panel_layout.addLayout(entries)
             add = QPushButton(f"+ Add food to {meal}")
             add.setAccessibleName(f"Add food to {meal}")
+            add.setStyleSheet("font-size: 14px;")
             add.setToolTip(f"Search foods and recipes for {meal}")
             add.clicked.connect(lambda checked=False, category=meal: self.open_add_dialog(category))
             panel_layout.addWidget(add, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -331,11 +333,15 @@ class DiaryView(QWidget):
         for meal in MEALS:
             self._clear_layout(self.meal_entries[meal])
             meal_entries = tuple(entry for entry in entries if entry.meal == meal)
-            meal_total = totals.meals[meal].calories
-            self.findChild(QLabel, f"subtotal{meal}").setText(f"{meal_total:.0f} kcal")
+            meal_total_text = f"{totals.meals[meal].calories:.2f} kcal · " \
+                              f"Protein {totals.meals[meal].protein:.2f}g · " \
+                              f"Carbs {totals.meals[meal].carbohydrates:.2f}g · " \
+                              f"Fat {totals.meals[meal].fat:.2f}g · " \
+                              f"Fiber {totals.meals[meal].fiber:.2f}g"
+            self.findChild(QLabel, f"subtotal{meal}").setText(meal_total_text)
             if not meal_entries:
                 hint = QLabel("Nothing logged yet. Add a food or recipe to get started.")
-                hint.setStyleSheet("color: #8994a3; padding: 7px 0;")
+                hint.setStyleSheet("color: #8994a3; padding: 7px 0; font-size: 14px;")
                 self.meal_entries[meal].addWidget(hint)
             for entry in meal_entries:
                 self.meal_entries[meal].addWidget(self._entry_row(entry))
@@ -346,7 +352,7 @@ class DiaryView(QWidget):
         for key, (value, bar) in self.macro_cards.items():
             nutrient = getattr(totals.total, key)
             unit = "kcal" if key == "calories" else "g"
-            value.setText(f"{nutrient:.0f} {unit}")
+            value.setText(f"{nutrient:.2f} {unit}")
             target = self._target_value(key)
             bar.setValue(min(100, int(nutrient * 100 / target)) if target else 0)
             bar.setToolTip(f"{names[key]} target: {target:g} {unit}" if target else "No daily target set")
@@ -364,28 +370,29 @@ class DiaryView(QWidget):
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 4, 0, 4)
-        label = QLabel(f"{entry.display_name}  ·  {_amount(entry.amount_g)} g")
+        label = QLabel(f"{entry.display_name}  ·  {_amount(entry.amount_g)}g")
         nutrients = entry.nutrients
         details = QLabel(
-            f"{nutrients.calories:.0f} kcal   P {nutrients.protein:.1f} g   "
-            f"C {nutrients.carbohydrates:.1f} g   F {nutrients.fat:.1f} g   "
-            f"Fiber {nutrients.fiber:.1f} g"
+            f"{nutrients.calories:.2f} kcal · "
+            f"Protein {nutrients.protein:.2f}g · "
+            f"Carbs {nutrients.carbohydrates:.2f}g · "
+            f"Fat {nutrients.fat:.2f}g · "
+            f"Fiber {nutrients.fiber:.2f}g"
         )
-        details.setStyleSheet("font-size: 12px; color: #536d95;")
-        label.setStyleSheet("font-size: 12px; color: #172538;")
+        details.setStyleSheet("font-size: 16px; color: #536d95;")
+        label.setStyleSheet("font-size: 16px; color: #172538;")
         layout.addWidget(label, 2)
         layout.addWidget(details, 3)
-        edit = QPushButton("Edit")
+        edit = QPushButton("✎")
+        edit.setStyleSheet("font-size: 26px;")
         edit.setToolTip("Edit amount; save or cancel your change")
         edit.clicked.connect(lambda checked=False, entry_id=entry.id: self.begin_edit(entry_id))
-        repeat = QPushButton("Repeat")
-        repeat.setToolTip("Add another copy to this meal")
-        repeat.clicked.connect(lambda checked=False, entry_id=entry.id: self.repeat_entry(entry_id))
-        delete = QPushButton("Delete")
+        delete = QPushButton("×")
         delete.setObjectName("dangerButton")
         delete.setToolTip("Delete this diary entry")
+        delete.setStyleSheet("font-size: 26px;")
         delete.clicked.connect(lambda checked=False, entry_id=entry.id: self.delete_entry(entry_id))
-        for button in (edit, repeat, delete):
+        for button in (edit, delete):
             button.setAccessibleName(f"{button.text()} {entry.display_name}")
             layout.addWidget(button)
         row.setObjectName(f"diaryEntry{entry.id}")
@@ -393,7 +400,8 @@ class DiaryView(QWidget):
         return row
 
     def begin_edit(self, entry_id: str) -> None:
-        entry = next((item for item in self.services.diary.entries_for_day(self.selected_date) if item.id == entry_id), None)
+        entry = next((item for item in self.services.diary.entries_for_day(self.selected_date) if item.id == entry_id),
+                     None)
         row = self._entry_widgets.get(entry_id)
         if entry is None or row is None:
             return
@@ -402,19 +410,24 @@ class DiaryView(QWidget):
             widget = layout.takeAt(0).widget()
             if widget:
                 widget.deleteLater()
-        layout.addWidget(QLabel(f"Edit amount for {entry.display_name}"))
+        edit_amount_widget = QLabel(f"Edit amount for {entry.display_name}")
+        edit_amount_widget.setStyleSheet("font-size: 16px;")
+        layout.addWidget(edit_amount_widget)
         self.edit_amount_input = QDoubleSpinBox()
         self.edit_amount_input.setObjectName("editDiaryAmount")
         self.edit_amount_input.setAccessibleName("Edit diary amount in grams")
         self.edit_amount_input.setRange(0.1, 100000)
         self.edit_amount_input.setDecimals(1)
         self.edit_amount_input.setValue(float(entry.amount_g))
+        self.edit_amount_input.setStyleSheet("font-size: 16px;")
         layout.addWidget(self.edit_amount_input)
         self._editing_entry_id = entry_id
         save = QPushButton("Save")
         save.clicked.connect(self.save_edit)
+        save.setStyleSheet("font-size: 16px;")
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.cancel_edit)
+        cancel.setStyleSheet("font-size: 16px;")
         layout.addWidget(save)
         layout.addWidget(cancel)
 

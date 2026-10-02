@@ -87,7 +87,10 @@ class PresentationTests(unittest.TestCase):
         self.assertTrue(dialog.yield_input.isReadOnly())
         self.assertEqual(dialog.yield_input.value(), 200)
         self.assertFalse(dialog.warning_label.isVisible())
-        self.assertIn("Per 100 g: 380 kcal", dialog.preview_label.text())
+        self.assertEqual(
+            'Per 100g: 380.00 kcal · Protein 0.00g · Carbs 0.00g · Fat 0.00g · Fiber 0.00g',
+            dialog.preview_label.text()
+        )
 
         milk_index = dialog.food_picker.findData("milk")
         dialog.food_picker.setCurrentIndex(milk_index)
@@ -95,12 +98,12 @@ class PresentationTests(unittest.TestCase):
         dialog.add_ingredient_button.click()
 
         self.assertEqual(dialog.yield_input.value(), 300)
-        self.assertIn("Per 100 g: 287 kcal", dialog.preview_label.text())
+        self.assertIn("Per 100g: 286.67 kcal", dialog.preview_label.text())
 
         dialog.ingredient_table.cellWidget(1, 2).click()
 
         self.assertEqual(dialog.yield_input.value(), 200)
-        self.assertIn("Per 100 g: 380 kcal", dialog.preview_label.text())
+        self.assertIn("Per 100g: 380.00 kcal", dialog.preview_label.text())
         self.assertTrue(dialog.save_button.isEnabled())
         dialog.close()
 
@@ -155,7 +158,7 @@ class PresentationTests(unittest.TestCase):
         diary = self.window.diary_view
         self.assertEqual(diary.date_picker.date().toString("yyyy-MM-dd"), diary.selected_date)
         diary.set_date("2026-10-01")
-        self.assertEqual(diary.day_total_label.text(), "0 kcal")
+        self.assertEqual(diary.day_total_label.text(), "0.00 kcal")
         self.assertEqual(len(diary.meal_panels), 4)
 
         diary.add_catalogue_item("Breakfast", "oats", Decimal("50"))
@@ -172,10 +175,10 @@ class PresentationTests(unittest.TestCase):
         diary = self.window.diary_view
         entry = diary.add_catalogue_item("Breakfast", "oats", Decimal("50"))
 
-        self.assertEqual(diary.macro_cards["fiber"][0].text(), "1 g")
-        self.assertEqual(diary.findChild(QLabel, "subtotalBreakfast").text(), "190 kcal")
+        self.assertEqual(diary.macro_cards["fiber"][0].text(), "1.25 g")
+        self.assertEqual(diary.findChild(QLabel, "subtotalBreakfast").text(), "190.00 kcal · Protein 0.00g · Carbs 0.00g · Fat 0.00g · Fiber 1.25g")
         details = diary._entry_widgets[entry.id].findChildren(QLabel)
-        self.assertTrue(any("Fiber 1.2 g" in label.text() for label in details))
+        self.assertTrue(any("Fiber 1.25g" in label.text() for label in details))
 
     def test_diary_import_button_and_review_dialog_import_to_selected_day(self):
         source = Path(self.temp_dir.name) / "day.csv"

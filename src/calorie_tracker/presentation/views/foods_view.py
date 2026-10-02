@@ -79,7 +79,7 @@ class FoodsView(QWidget):
         records.extend((food.name, "food", food.id) for food in self.services.foods.search(query))
         records.extend((recipe.draft.name, "recipe", recipe.id) for recipe in self.services.recipes.search(query))
         for name, kind, item_id in sorted(records, key=lambda value: value[0].casefold()):
-            label = "Basic food · per 100 g" if kind == "food" else "Recipe · per 100 g"
+            label = "Basic food · per 100g" if kind == "food" else "Recipe · per 100g"
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, (kind, item_id))
             item.setToolTip(f"{name}, {label}")
@@ -196,7 +196,7 @@ class FoodsView(QWidget):
     def _choose_import(self) -> None:
         help_dialog = CsvImportHelpDialog(
             "Import foods from CSV",
-            "Food CSV columns can appear in any order. Include the food name, calories, protein, fat, and carbohydrates per 100 g. Fiber is optional.",
+            "Food CSV columns can appear in any order. Include the food name, calories, protein, fat, and carbohydrates per 100g. Fiber is optional.",
             "food_name, calories/100g, protein/100g, fat/100g, carbohydrates/100g, fiber/100g",
             "Oats,120,6,4,20,8",
             self,

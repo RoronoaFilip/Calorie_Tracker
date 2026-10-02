@@ -165,8 +165,11 @@ class RecipeDialog(QDialog):
         if preview.is_valid:
             totals = preview.per_100g
             self.preview_label.setText(
-                f"Per 100 g: {totals.calories:.0f} kcal · Protein {totals.protein:.1f} g · "
-                f"Carbs {totals.carbohydrates:.1f} g · Fat {totals.fat:.1f} g"
+                f"Per 100g: {totals.calories:.2f} kcal · "
+                f"Protein {totals.protein:.2f}g · "
+                f"Carbs {totals.carbohydrates:.2f}g · "
+                f"Fat {totals.fat:.2f}g · "
+                f"Fiber {totals.fiber:.2f}g"
             )
         else:
             self.preview_label.setText("Add a name, positive final yield, and at least one valid ingredient.")

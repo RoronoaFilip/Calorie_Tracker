@@ -55,7 +55,7 @@ class FoodDialog(QDialog):
             field.setRange(0, 1_000_000)
             field.setDecimals(4)
             field.setSingleStep(1 if key == "calories" else 0.1)
-            field.setAccessibleName(f"{label} per 100 g")
+            field.setAccessibleName(f"{label} per 100g")
             if initial_food:
                 field.setValue(float(getattr(initial_food.nutrients_per_100g, key)))
             self.nutrient_inputs[key] = field
