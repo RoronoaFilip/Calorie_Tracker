@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -393,6 +394,132 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(field.palette().color(field.backgroundRole()), QColor("#f1f5fb"))
         self.assertIn("QDialog", self.window.styleSheet())
         dialog.close()
+
+    def test_food_dialog_prefills_and_clears_import_correction_field(self):
+        imported_food = Food(
+            "csv-food", "Oats", Nutrients(protein=Decimal("5"), fiber=Decimal("3"))
+        )
+        dialog = FoodDialog(
+            self.window,
+            imported_food=imported_food,
+            correction_fields=("calories",),
+            correction_errors=("Row 6: invalid value in calories / 100g",),
+        )
+        self.addCleanup(dialog.close)
+
+        self.assertEqual(dialog.windowTitle(), "Correct imported food")
+        self.assertEqual(dialog.name_input.text(), "Oats")
+        self.assertEqual(dialog.nutrient_inputs["protein"].value(), 5)
+        self.assertIn("calories", dialog.nutrient_inputs["calories"].accessibleDescription().casefold())
+        self.assertEqual(dialog.nutrient_inputs["calories"].styleSheet(), "border: 1px solid #b53d48;")
+
+        dialog.nutrient_inputs["calories"].setValue(120)
+        dialog._validate_and_accept()
+
+        self.assertEqual(dialog.result(), FoodDialog.DialogCode.Accepted)
+        self.assertEqual(dialog.food().nutrients_per_100g.calories, Decimal("120"))
+
+    def test_food_dialog_allows_zero_when_correcting_a_required_nutrient(self):
+        dialog = FoodDialog(
+            self.window,
+            imported_food=Food("csv-zero", "Food with zero calories", Nutrients()),
+            correction_fields=("calories",),
+        )
+        self.addCleanup(dialog.close)
+        dialog.show()
+        field = dialog.nutrient_inputs["calories"]
+        field.lineEdit().selectAll()
+        QTest.keyClicks(field.lineEdit(), "0")
+
+        dialog._validate_and_accept()
+
+        self.assertEqual(field.value(), 0)
+        self.assertEqual(dialog.result(), FoodDialog.DialogCode.Accepted)
+
+    def test_both_csv_import_buttons_show_schema_before_opening_file_picker(self):
+        events = []
+
+        def inspect_schema(dialog):
+            schema = dialog.findChild(QLabel, "csvImportSchema")
+            example = dialog.findChild(QLabel, "csvImportExample")
+            self.assertIsNotNone(schema)
+            self.assertIsNotNone(example)
+            self.assertIn("food_name", schema.text())
+            self.assertIn("Oats", example.text())
+            events.append(("schema", schema.text()))
+            return QDialog.DialogCode.Accepted
+
+        def choose_file(*_args):
+            events.append(("picker", ""))
+            return "", ""
+
+        with patch("PySide6.QtWidgets.QDialog.exec", new=inspect_schema), patch(
+            "calorie_tracker.presentation.views.foods_view.QFileDialog.getOpenFileName",
+            side_effect=choose_file,
+        ), patch(
+            "calorie_tracker.presentation.views.diary_view.QFileDialog.getOpenFileName",
+            side_effect=choose_file,
+        ):
+            self.window.foods_view._choose_import()
+            self.window.diary_view.choose_diary_csv()
+
+        self.assertEqual([event[0] for event in events], ["schema", "picker", "schema", "picker"])
+
+    def test_food_csv_import_saves_corrected_invalid_row_without_overwriting_existing_food(self):
+        source = Path(self.temp_dir.name) / "correction.csv"
+        source.write_text(
+            "food_name,calories / 100g,protein / 100g,fat / 100g,carbohydrates / 100g,fiber / 100g\n"
+            "Barley,invalid,5,4,20,3\n",
+            encoding="utf-8",
+        )
+        opened_fields = []
+
+        def correct(dialog):
+            opened_fields.extend(dialog._correction_fields)
+            self.assertEqual(dialog.name_input.text(), "Barley")
+            dialog.nutrient_inputs["calories"].setValue(120)
+            return FoodDialog.DialogCode.Accepted
+
+        with patch(
+            "calorie_tracker.presentation.views.foods_view.QMessageBox.exec",
+            return_value=QMessageBox.StandardButton.Yes,
+        ), patch(
+            "calorie_tracker.presentation.views.foods_view.FoodDialog.exec",
+            new=correct,
+        ):
+            self.window.foods_view.import_csv(source)
+
+        self.assertEqual(opened_fields, ["calories"])
+        self.assertEqual(self.services.foods.search("Barley")[0].nutrients_per_100g.calories, Decimal("120"))
+        self.assertEqual(self.services.foods.get("oats").nutrients_per_100g.calories, Decimal("380"))
+
+    def test_corrected_food_csv_row_with_existing_name_is_not_saved(self):
+        source = Path(self.temp_dir.name) / "conflict.csv"
+        source.write_text(
+            "food_name,calories / 100g,protein / 100g,fat / 100g,carbohydrates / 100g,fiber / 100g\n"
+            "Oats,invalid,5,4,20,3\n",
+            encoding="utf-8",
+        )
+
+        def correct(dialog):
+            dialog.nutrient_inputs["calories"].setValue(120)
+            return FoodDialog.DialogCode.Accepted
+
+        with patch(
+            "calorie_tracker.presentation.views.foods_view.QMessageBox.exec",
+            return_value=QMessageBox.StandardButton.Yes,
+        ), patch(
+            "calorie_tracker.presentation.views.foods_view.FoodDialog.exec",
+            new=correct,
+        ), patch(
+            "calorie_tracker.presentation.views.foods_view.QMessageBox.warning",
+        ) as warning:
+            self.window.foods_view.import_csv(source)
+
+        oats = self.services.foods.search("Oats")
+        self.assertEqual(len(oats), 1)
+        self.assertEqual(oats[0].nutrients_per_100g.calories, Decimal("380"))
+        warning.assert_called_once()
 
     def test_all_dropdown_and_spin_arrows_have_clear_indicators_and_light_popups(self):
         stylesheet = self.window.styleSheet()

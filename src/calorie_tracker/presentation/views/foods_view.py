@@ -1,5 +1,4 @@
 from pathlib import Path
-import uuid
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
@@ -17,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.domain.recipes import Food
+from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
 
@@ -194,6 +194,15 @@ class FoodsView(QWidget):
         self.notify(f"{name} archived.")
 
     def _choose_import(self) -> None:
+        help_dialog = CsvImportHelpDialog(
+            "Import foods from CSV",
+            "Food CSV columns can appear in any order. Include the food name, calories, protein, fat, and carbohydrates per 100 g. Fiber is optional.",
+            "food_name,calories / 100g,protein / 100g,fat / 100g,carbohydrates / 100g,fiber / 100g",
+            "Oats,120,6,4,20,8",
+            self,
+        )
+        if help_dialog.exec() != CsvImportHelpDialog.DialogCode.Accepted:
+            return
         default_source = Path(__file__).resolve().parents[4] / "food_macros_seed.csv"
         filename, _ = QFileDialog.getOpenFileName(
             self, "Select food CSV", str(default_source), "CSV files (*.csv);;All files (*)"
@@ -212,24 +221,55 @@ class FoodsView(QWidget):
             f"Rows read: {report.rows_read}\nFoods ready to import: {report.importable}\n"
             f"Ice cream rows excluded: {report.excluded_ice_cream_rows}\nDuplicate names: {report.duplicate_names}\n"
             f"Blank names: {report.blank_names}\nMalformed rows: {report.malformed_rows}\n"
+            f"Rows needing correction: {len(preview.invalid_foods)}\n"
             f"Ignored columns: {', '.join(report.ignored_headers)}"
         )
-        if report.row_errors:
-            details += f"\n\nRows with validation errors: {len(report.row_errors)}"
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle("Review food import")
         box.setText(details + "\n\nAdd these foods to the catalogue? Existing foods will not be overwritten.")
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if report.row_errors:
-            box.setDetailedText("\n".join(report.row_errors))
+        correction_errors = tuple(
+            message for invalid_food in preview.invalid_foods for message in invalid_food.errors
+        )
+        if correction_errors:
+            box.setDetailedText("\n".join(correction_errors))
         answer = box.exec()
         if answer != QMessageBox.StandardButton.Yes:
             return
         result = self.services.importer.apply(preview)
+        corrected = 0
+        skipped_conflicts = 0
+        already_corrected = 0
+        for invalid_food in preview.invalid_foods:
+            dialog = FoodDialog(
+                self,
+                imported_food=invalid_food.food,
+                correction_fields=invalid_food.fields_to_correct,
+                correction_errors=invalid_food.errors,
+            )
+            if dialog.exec() != FoodDialog.DialogCode.Accepted:
+                continue
+            food = dialog.food()
+            try:
+                imported, already_present, name_conflicts = self.services.foods.seed_foods((
+                    (food, invalid_food.source_key, invalid_food.source_row),
+                ))
+            except Exception as error:
+                QMessageBox.critical(self, "Could not save corrected food", str(error))
+                continue
+            corrected += imported
+            already_corrected += already_present
+            skipped_conflicts += name_conflicts
+            if name_conflicts:
+                QMessageBox.warning(
+                    self, "Food already exists",
+                    f"{food.name} was not saved because a food with that name already exists.",
+                )
         self.refresh()
         self.notify(
-            f"Imported {result.imported} foods; {result.already_present} already present; "
-            f"{result.name_conflicts} name conflicts."
+            f"Imported {result.imported} foods and saved {corrected} corrected rows; "
+            f"{result.already_present + already_corrected} already present; "
+            f"{result.name_conflicts + skipped_conflicts} name conflicts."
         )

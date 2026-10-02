@@ -27,6 +27,7 @@ from calorie_tracker.domain.diary import DiaryEntry
 from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.presentation.control_styles import style_calendar_arrows, style_chevron_button
 from calorie_tracker.infrastructure.diary_csv_importer import DiaryCsvFormatError
+from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog
 
 
@@ -284,6 +285,15 @@ class DiaryView(QWidget):
         return entry
 
     def choose_diary_csv(self) -> None:
+        help_dialog = CsvImportHelpDialog(
+            "Import diary entries from CSV",
+            "Match each row to a food already in your catalogue. Amounts are grams; meal/time is optional and can be assigned during review.",
+            "food_name,grams_eaten (all meals),meal",
+            "Oats,45.5,Breakfast",
+            self,
+        )
+        if help_dialog.exec() != CsvImportHelpDialog.DialogCode.Accepted:
+            return
         filename, _ = QFileDialog.getOpenFileName(
             self, "Select diary CSV", "", "CSV files (*.csv);;All files (*)"
         )

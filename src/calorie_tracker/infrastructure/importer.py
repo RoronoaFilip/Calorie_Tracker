@@ -36,6 +36,15 @@ class ImportFood:
 
 
 @dataclass(frozen=True)
+class InvalidImportFood:
+    food: Food
+    source_key: str
+    source_row: int
+    fields_to_correct: tuple[str, ...]
+    errors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ImportReport:
     rows_read: int
     importable: int
@@ -51,6 +60,7 @@ class ImportReport:
 class ImportPreview:
     foods: tuple[ImportFood, ...]
     report: ImportReport
+    invalid_foods: tuple[InvalidImportFood, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -75,6 +85,7 @@ class CsvFoodImporter:
         header_index, positions, ignored = self._find_header(rows)
         header = rows[header_index]
         foods: list[ImportFood] = []
+        invalid_foods: list[InvalidImportFood] = []
         errors: list[str] = []
         seen_names: set[str] = set()
         duplicates = blank_names = malformed = excluded_ice_cream_rows = rows_read = 0
@@ -84,19 +95,23 @@ class CsvFoodImporter:
             rows_read += 1
             name_position = positions["food_name"]
             name = values[name_position].strip() if len(values) > name_position else ""
+            normalized = name.casefold()
             if not name:
                 blank_names += 1
-                continue
-            normalized = name.casefold()
-            if normalized in seen_names:
+            elif normalized in seen_names:
                 duplicates += 1
                 continue
-            seen_names.add(normalized)
-            if normalized in EXCLUDED_ICE_CREAM_NAMES:
+            else:
+                seen_names.add(normalized)
+            if name and normalized in EXCLUDED_ICE_CREAM_NAMES:
                 excluded_ice_cream_rows += 1
                 continue
             nutrients: dict[str, Decimal] = {}
-            row_error: str | None = None
+            row_errors: list[str] = []
+            correction_fields: list[str] = []
+            if not name:
+                correction_fields.append("food_name")
+                row_errors.append(f"Row {source_row}: food name is blank.")
             for field in NUTRIENT_FIELDS:
                 if field not in positions:
                     nutrients[field] = ZERO
@@ -112,22 +127,35 @@ class CsvFoodImporter:
                         raise InvalidOperation
                     nutrients[field] = value
                 except (InvalidOperation, ValueError):
-                    row_error = f"Row {source_row} ({name}): invalid non-negative number in {header[position]} or a required value is blank."
-                    break
-            if row_error:
+                    nutrients[field] = ZERO
+                    correction_fields.append(field)
+                    row_errors.append(
+                        f"Row {source_row} ({name or 'unnamed food'}): enter a non-negative number in {header[position]}"
+                        + (" (required)." if field in ("calories", "protein", "fat", "carbohydrates") else ".")
+                    )
+            if row_errors:
+                numeric_errors = [error for error in row_errors if "enter a non-negative number" in error]
+            else:
+                numeric_errors = []
+            if numeric_errors:
                 malformed += 1
-                errors.append(row_error)
-                continue
-            source_key = "csv:food:" + normalized
+                errors.extend(numeric_errors)
+            source_key = (
+                "csv:food:" + normalized if name else f"csv:food:row:{source_row}"
+            )
             stable_id = str(uuid.uuid5(uuid.NAMESPACE_URL, source_key))
-            foods.append(ImportFood(
-                Food(stable_id, name, Nutrients(**nutrients)), source_key, source_row
-            ))
+            imported_food = Food(stable_id, name, Nutrients.from_mapping(nutrients))
+            if correction_fields:
+                invalid_foods.append(InvalidImportFood(
+                    imported_food, source_key, source_row, tuple(correction_fields), tuple(row_errors)
+                ))
+            else:
+                foods.append(ImportFood(imported_food, source_key, source_row))
         report = ImportReport(
             rows_read, len(foods), duplicates, blank_names, malformed,
             excluded_ice_cream_rows, ignored, tuple(errors)
         )
-        return ImportPreview(tuple(foods), report)
+        return ImportPreview(tuple(foods), report, tuple(invalid_foods))
 
     @staticmethod
     def _find_header(rows: list[list[str]]) -> tuple[int, dict[str, int], tuple[str, ...]]:

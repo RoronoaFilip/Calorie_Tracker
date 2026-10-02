@@ -68,6 +68,29 @@ class CsvFoodImporterTests(unittest.TestCase):
         self.assertEqual(len(preview.report.row_errors), 1)
         self.assertIn("calories / 100g", preview.report.row_errors[0])
 
+    def test_preview_retains_invalid_row_values_and_fields_that_need_correction(self):
+        invalid = row("Broken", "not-a-number")
+        path = write_csv(self.temp_dir.name, [invalid])
+
+        preview = self.importer.preview(path)
+
+        self.assertEqual(len(preview.invalid_foods), 1)
+        correction = preview.invalid_foods[0]
+        self.assertEqual(correction.food.name, "Broken")
+        self.assertEqual(correction.food.nutrients_per_100g.protein, Decimal("5"))
+        self.assertEqual(correction.food.nutrients_per_100g.fiber, Decimal("3"))
+        self.assertIn("calories", correction.fields_to_correct)
+        self.assertIn("calories / 100g", correction.errors[0])
+
+    def test_preview_marks_blank_required_value_for_correction(self):
+        path = write_csv(self.temp_dir.name, [row("Missing calories", "")])
+
+        correction = self.importer.preview(path).invalid_foods[0]
+
+        self.assertEqual(correction.food.name, "Missing calories")
+        self.assertIn("calories", correction.fields_to_correct)
+        self.assertEqual(correction.food.nutrients_per_100g.calories, Decimal("0"))
+
     def test_preview_rejects_missing_exact_source_header(self):
         path = write_csv(self.temp_dir.name, [row("Apple")])
         text = path.read_text(encoding="utf-8").replace("protein / 100g", "protein per serving")
