@@ -62,6 +62,31 @@ class DiaryCsvImporterTests(unittest.TestCase):
         self.assertIsNone(preview.rows[0].meal)
         self.assertEqual(preview.needs_meal_assignment, (preview.rows[0],))
 
+    def test_preview_maps_normalized_reordered_diary_aliases(self):
+        path = self._write_csv([
+            ["  TIME ", " QUANTITY ", " Product ", "unrecognized", "Kcal"],
+            ["Snack", "45", "Oats", "ignored", "380"],
+        ])
+
+        preview = self.importer.preview(path)
+
+        self.assertEqual(preview.importable_count, 1)
+        self.assertEqual(preview.rows[0].food_name, "Oats")
+        self.assertEqual(preview.rows[0].amount_g, Decimal("45"))
+        self.assertEqual(preview.rows[0].meal, "Snacks")
+
+    def test_preview_rejects_multiple_aliases_for_a_diary_field(self):
+        path = self._write_csv([
+            ["food_name", "product", "amount", "meal"],
+            ["Oats", "Oats", "45", "Breakfast"],
+        ])
+
+        with self.assertRaises(DiaryCsvFormatError) as error:
+            self.importer.preview(path)
+
+        self.assertIn("duplicate", str(error.exception).casefold())
+        self.assertIn("food name", str(error.exception).casefold())
+
     def test_preview_keeps_invalid_rows_visible_without_matching_partial_food_names(self):
         path = self._write_csv([
             ["food_name", "grams_eaten (all meals)", "meal"],
@@ -115,7 +140,7 @@ class DiaryCsvImporterTests(unittest.TestCase):
         self.assertIn("multiple active catalogue matches", row.error)
 
     def test_preview_rejects_csv_without_required_food_or_amount_header(self):
-        path = self._write_csv([["name", "amount"], ["Oats", "50"]])
+        path = self._write_csv([["description", "serving"], ["Oats", "50"]])
 
         with self.assertRaises(DiaryCsvFormatError) as context:
             self.importer.preview(path)

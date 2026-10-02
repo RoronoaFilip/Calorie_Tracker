@@ -100,6 +100,40 @@ class CsvFoodImporterTests(unittest.TestCase):
         self.assertIn("duplicate", str(error.exception).casefold())
         self.assertIn("Expected header columns", str(error.exception))
 
+    def test_preview_maps_normalized_reordered_aliases_and_ignores_diary_fields(self):
+        path = Path(self.temp_dir.name) / "reordered.csv"
+        with path.open("w", encoding="utf-8", newline="") as stream:
+            csv.writer(stream).writerows([
+                ["Report"],
+                [" Product ", " Dietary Fiber ", "KCAL", "Fat", "Carbs", "Protein", "Meal", "Time", "Other"],
+                ["Oats", "8", "120", "4", "20", "6", "Lunch", "noon", "ignored"],
+            ])
+
+        preview = self.importer.preview(path)
+
+        nutrients = preview.foods[0].food.nutrients_per_100g
+        self.assertEqual(preview.report.importable, 1)
+        self.assertEqual(nutrients.calories, Decimal("120"))
+        self.assertEqual(nutrients.protein, Decimal("6"))
+        self.assertEqual(nutrients.fat, Decimal("4"))
+        self.assertEqual(nutrients.carbohydrates, Decimal("20"))
+        self.assertEqual(nutrients.fiber, Decimal("8"))
+        self.assertEqual(preview.report.ignored_headers, ("Meal", "Time", "Other"))
+
+    def test_preview_rejects_multiple_headers_for_the_same_food_field(self):
+        path = Path(self.temp_dir.name) / "ambiguous.csv"
+        with path.open("w", encoding="utf-8", newline="") as stream:
+            csv.writer(stream).writerows([
+                ["food_name", "name", "calories", "protein", "fat", "carbohydrates"],
+                ["Oats", "Oatmeal", "120", "6", "4", "20"],
+            ])
+
+        with self.assertRaises(ImportFormatError) as error:
+            self.importer.preview(path)
+
+        self.assertIn("duplicate", str(error.exception).casefold())
+        self.assertIn("food name", str(error.exception).casefold())
+
     def test_ice_cream_rows_are_excluded_from_basic_food_import(self):
         path = write_csv(self.temp_dir.name, [row("Cocoa Ice Cream"), row("Vanilla ice cream")])
 

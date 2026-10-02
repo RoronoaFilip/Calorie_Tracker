@@ -251,7 +251,7 @@ class PresentationTests(unittest.TestCase):
 
     def test_invalid_diary_csv_shows_expected_format_without_writing(self):
         source = Path(self.temp_dir.name) / "wrong.csv"
-        source.write_text("name,amount\nOats,50\n", encoding="utf-8")
+        source.write_text("description,serving\nOats,50\n", encoding="utf-8")
 
         with patch("calorie_tracker.presentation.views.diary_view.QMessageBox.critical") as critical:
             self.window.diary_view.import_diary_csv(str(source))

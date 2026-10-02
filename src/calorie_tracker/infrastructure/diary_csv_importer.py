@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from calorie_tracker.domain.diary import MEALS
+from calorie_tracker.infrastructure.csv_headers import DIARY_FIELD_ALIASES, match_headers
 from calorie_tracker.infrastructure.repositories import FoodRepository
 
 
@@ -76,9 +77,9 @@ class CsvDiaryImporter:
             if not any(value.strip() for value in values):
                 continue
             get = lambda column: values[column].strip() if column < len(values) else ""
-            name = get(columns[FOOD_NAME_HEADER])
-            amount_text = get(columns[AMOUNT_HEADER])
-            meal_text = get(columns[MEAL_HEADER]) if MEAL_HEADER in columns else ""
+            name = get(columns["food_name"])
+            amount_text = get(columns["amount_g"])
+            meal_text = get(columns["meal"]) if "meal" in columns else ""
             amount: Decimal | None = None
             errors: list[str] = []
 
@@ -114,23 +115,22 @@ class CsvDiaryImporter:
 
     @staticmethod
     def _find_header(rows: list[list[str]]) -> tuple[int, dict[str, int]]:
-        required = {FOOD_NAME_HEADER, AMOUNT_HEADER}
         for index, row in enumerate(rows[:50]):
-            headers = [value.strip().casefold() for value in row]
-            if required.issubset(headers):
-                checked = (*required, MEAL_HEADER) if MEAL_HEADER in headers else tuple(required)
-                duplicates = sorted(name for name in checked if headers.count(name) > 1)
-                if duplicates:
-                    raise DiaryCsvFormatError(
-                        "The CSV contains duplicate required column(s): " + ", ".join(duplicates)
-                        + FORMAT_GUIDANCE
-                    )
-                columns = {name: headers.index(name) for name in required}
-                if MEAL_HEADER in headers:
-                    columns[MEAL_HEADER] = headers.index(MEAL_HEADER)
-                return index, columns
+            columns, duplicates, _ = match_headers(row, DIARY_FIELD_ALIASES)
+            available = set(columns) | set(duplicates)
+            if not {"food_name", "amount_g"}.issubset(available):
+                continue
+            if duplicates:
+                duplicate_labels = ", ".join(
+                    {"food_name": "food name", "amount_g": "amount", "meal": "meal/time"}.get(field, field)
+                    for field in duplicates
+                )
+                raise DiaryCsvFormatError(
+                    "The CSV contains duplicate headers for the same field: "
+                    + duplicate_labels + "." + FORMAT_GUIDANCE
+                )
+            return index, columns
         raise DiaryCsvFormatError(
-            "This file is not in the diary import format. Required columns: "
-            f"'{FOOD_NAME_HEADER}' and '{AMOUNT_HEADER}'. The optional meal column is '{MEAL_HEADER}'."
-            f"{FORMAT_GUIDANCE}"
+            "This file is not in the diary import format. It needs a food name and amount header "
+            f"(for example '{FOOD_NAME_HEADER}' and '{AMOUNT_HEADER}').{FORMAT_GUIDANCE}"
         )
