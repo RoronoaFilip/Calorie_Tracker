@@ -288,7 +288,7 @@ class DiaryView(QWidget):
         help_dialog = CsvImportHelpDialog(
             "Import diary entries from CSV",
             "Match each row to a food already in your catalogue. Amounts are grams; meal/time is optional and can be assigned during review.",
-            "food_name,grams_eaten (all meals),meal",
+            "food_name, grams_eaten, meal",
             "Oats,45.5,Breakfast",
             self,
         )

@@ -197,7 +197,7 @@ class FoodsView(QWidget):
         help_dialog = CsvImportHelpDialog(
             "Import foods from CSV",
             "Food CSV columns can appear in any order. Include the food name, calories, protein, fat, and carbohydrates per 100 g. Fiber is optional.",
-            "food_name,calories / 100g,protein / 100g,fat / 100g,carbohydrates / 100g,fiber / 100g",
+            "food_name, calories/100g, protein/100g, fat/100g, carbohydrates/100g, fiber/100g",
             "Oats,120,6,4,20,8",
             self,
         )
