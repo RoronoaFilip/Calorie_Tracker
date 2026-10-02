@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -162,6 +163,18 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].display_name, "Oats")
         self.assertIn("190", diary.day_total_label.text())
+
+    def test_diary_displays_fiber_in_daily_totals_and_entry_details(self):
+        self.services.foods.save(Food(
+            "oats", "Oats", Nutrients(calories=Decimal("380"), fiber=Decimal("2.5"))
+        ))
+        diary = self.window.diary_view
+        entry = diary.add_catalogue_item("Breakfast", "oats", Decimal("50"))
+
+        self.assertEqual(diary.macro_cards["fiber"][0].text(), "1 g")
+        self.assertEqual(diary.findChild(QLabel, "subtotalBreakfast").text(), "190 kcal")
+        details = diary._entry_widgets[entry.id].findChildren(QLabel)
+        self.assertTrue(any("Fiber 1.2 g" in label.text() for label in details))
 
     def test_diary_import_button_and_review_dialog_import_to_selected_day(self):
         source = Path(self.temp_dir.name) / "day.csv"

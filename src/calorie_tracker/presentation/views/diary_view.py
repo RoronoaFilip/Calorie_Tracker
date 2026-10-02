@@ -172,9 +172,11 @@ class DiaryView(QWidget):
             "protein": ("#e0f2e9", "#c6e3d3"),
             "carbohydrates": ("#e4ecff", "#cad8f4"),
             "fat": ("#f2e8f5", "#dfcde6"),
+            "fiber": ("#edf2df", "#d8e1c1"),
         }
         for key, caption, unit in (("calories", "Calories", "kcal"), ("protein", "Protein", "g"),
-                                   ("carbohydrates", "Carbs", "g"), ("fat", "Fat", "g")):
+                                   ("carbohydrates", "Carbs", "g"), ("fat", "Fat", "g"),
+                                   ("fiber", "Fiber", "g")):
             card = QFrame()
             card.setObjectName("card")
             background, border = card_colors[key]
@@ -234,6 +236,7 @@ class DiaryView(QWidget):
             label.setStyleSheet("font-size: 16px; font-weight: 650;")
             subtotal = QLabel("0 kcal")
             subtotal.setObjectName(f"subtotal{meal}")
+            subtotal.setStyleSheet("font-size: 12px; color: #536d95;")
             heading.addWidget(label)
             heading.addStretch(1)
             heading.addWidget(subtotal)
@@ -326,7 +329,10 @@ class DiaryView(QWidget):
                 self.meal_entries[meal].addWidget(hint)
             for entry in meal_entries:
                 self.meal_entries[meal].addWidget(self._entry_row(entry))
-        names = {"calories": "Calories", "protein": "Protein", "carbohydrates": "Carbohydrates", "fat": "Fat"}
+        names = {
+            "calories": "Calories", "protein": "Protein", "carbohydrates": "Carbohydrates",
+            "fat": "Fat", "fiber": "Fiber",
+        }
         for key, (value, bar) in self.macro_cards.items():
             nutrient = getattr(totals.total, key)
             unit = "kcal" if key == "calories" else "g"
@@ -350,8 +356,13 @@ class DiaryView(QWidget):
         layout.setContentsMargins(0, 4, 0, 4)
         label = QLabel(f"{entry.display_name}  ·  {_amount(entry.amount_g)} g")
         nutrients = entry.nutrients
-        details = QLabel(f"{nutrients.calories:.0f} kcal   P {nutrients.protein:.1f} g   C {nutrients.carbohydrates:.1f} g   F {nutrients.fat:.1f} g")
-        details.setStyleSheet("color: #738094;")
+        details = QLabel(
+            f"{nutrients.calories:.0f} kcal   P {nutrients.protein:.1f} g   "
+            f"C {nutrients.carbohydrates:.1f} g   F {nutrients.fat:.1f} g   "
+            f"Fiber {nutrients.fiber:.1f} g"
+        )
+        details.setStyleSheet("font-size: 12px; color: #536d95;")
+        label.setStyleSheet("font-size: 12px; color: #172538;")
         layout.addWidget(label, 2)
         layout.addWidget(details, 3)
         edit = QPushButton("Edit")
