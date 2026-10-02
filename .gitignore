@@ -10,3 +10,7 @@ exports/
 .runtime-deps/
 .venv/
 *.egg-info/
+
+.coverage
+coverage.xml
+test-results.xml
