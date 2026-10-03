@@ -189,10 +189,10 @@ class MainWindow(QMainWindow):
             QPushButton#primaryButton:hover { background: #324ba6; }
             QPushButton#primaryButton:pressed { background: #2a3f8c; }
             QPushButton#primaryButton:disabled { background: #b7c2e6; color: #f2f5fc; border-color: #aab6de; }
-            QPushButton#importDiaryCsvButton, QPushButton#importFoodCsvButton {
+            QPushButton#importDiaryCsvButton, QPushButton#importFoodCsvButton, QPushButton#choosePhotoButton {
                 background: #e6edff; color: #2c46a3; border: 1px solid #6f8be0; font-weight: 600; }
-            QPushButton#importDiaryCsvButton:hover, QPushButton#importFoodCsvButton:hover {
-                background: #d5e1ff; border-color: #4f68c5; }
+            QPushButton#importDiaryCsvButton:hover, QPushButton#importFoodCsvButton:hover,
+            QPushButton#choosePhotoButton:hover { background: #d5e1ff; border-color: #4f68c5; }
             QPushButton#undoButton { background: #fff3d0; color: #7a5200; border: 1px solid #e0b64e; }
             QPushButton#undoButton:hover { background: #ffe9ab; }
             QPushButton#addFoodButton { background: transparent; color: #34508f;
@@ -212,6 +212,18 @@ class MainWindow(QMainWindow):
             QWidget#catalogueRow[selected="true"] { background: #dce6fb; border-radius: 7px; }
             QPushButton#recipeRemoveButton { min-height: 30px; padding: 5px 10px; }
             QFrame#card { background: #e5edf8; border: 1px solid #d1dceb; border-radius: 13px; }
+            /* Banner on dialogs that show where prefilled data came from (info / success / warning). */
+            QFrame#dialogBanner { background: #e6edff; border: 1px solid #b4c4ea; border-radius: 11px; }
+            QFrame#dialogBanner[level="success"] { background: #e1f3e8; border-color: #9fd2b3; }
+            QFrame#dialogBanner[level="warning"] { background: #fff0d2; border-color: #e5c176; }
+            QLabel#dialogBannerText { font-size: 13px; color: #243041; }
+            QLabel#foodPhotoPreview { background: #ffffff; border: 1px solid #c2cede; border-radius: 8px;
+                                      color: #738094; }
+            /* CSV repair popup */
+            QLabel#csvRepairStatus { font-size: 14px; padding: 2px 0; }
+            QListWidget#csvRepairIssues { background: #fbfcfe; padding: 4px; }
+            QListWidget#csvRepairIssues::item { padding: 5px 8px; border-radius: 5px; color: #7d2630; }
+            QListWidget#csvRepairIssues::item:selected { background: #fbe1e4; color: #5e1c24; }
         """
         self.setStyleSheet(
             stylesheet.replace("__ARROW_DOWN_URL__", arrow_down).replace("__ARROW_UP_URL__", arrow_up)

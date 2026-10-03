@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -18,19 +19,30 @@ from PySide6.QtWidgets import (
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.paths import seed_csv_path
 from calorie_tracker.presentation.control_styles import fit_button_text
-from calorie_tracker.presentation.csv_drop import CsvDropMixin
+from calorie_tracker.application.product_import import FOUND, OFFLINE
+from calorie_tracker.infrastructure.file_kinds import CSV, IMAGE, IMAGE_FILTER
+from calorie_tracker.infrastructure.open_food_facts import ATTRIBUTION
+from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
 from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.food_csv_review_dialog import FoodCsvReviewDialog
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
+from calorie_tracker.presentation.file_drop import FileDropMixin
 
 
-class FoodsView(CsvDropMixin, QWidget):
+OFFLINE_NOTICE = (
+    "No internet connection: the barcode could not be looked up. "
+    "Enter the nutrients by hand or try again when you are online."
+)
+
+
+class FoodsView(FileDropMixin, QWidget):
     edit_archive_buttons_font = "font-size: 26px;"
+    drop_kinds = frozenset({CSV, IMAGE})  # a CSV imports many foods, a barcode photo imports one
 
     def __init__(self, services: ApplicationServices, notify):
         super().__init__()
-        self.init_csv_drop()
+        self.init_file_drop()
         self.services = services
         self.notify = notify
         self._selected: tuple[str, str] | None = None
@@ -51,9 +63,13 @@ class FoodsView(CsvDropMixin, QWidget):
         self.add_food_button.setObjectName("primaryButton")
         self.create_recipe_button = QPushButton("Create recipe")
         self.create_recipe_button.setObjectName("primaryButton")
-        self.import_button = QPushButton("CSV Import")
+        self.import_button = QPushButton("Import CSV or photo")
         self.import_button.setObjectName("importFoodCsvButton")
-        self.import_button.setToolTip("Import foods from a CSV file, or drop a CSV anywhere on this page")
+        self.import_button.setAccessibleName("Import foods from a CSV file or a barcode photo")
+        self.import_button.setToolTip(
+            "Import foods from a CSV file, or one food from a photo of its barcode. "
+            "You can also drop a CSV or a photo anywhere on this page."
+        )
         self.add_food_button.clicked.connect(self._add_food)
         self.create_recipe_button.clicked.connect(self._create_recipe)
         self.import_button.clicked.connect(self._choose_import)
@@ -211,30 +227,90 @@ class FoodsView(CsvDropMixin, QWidget):
     def _choose_import(self) -> None:
         help_dialog = CsvImportHelpDialog(
             "Import foods from CSV",
-            "Food CSV columns can appear in any order, with ',' ';' or tab separators. Include the food name, calories, protein, fat, and carbohydrates per 100 g. Fiber is optional. You can also drop a CSV anywhere on the Foods page.",
+            "Import many foods from a CSV: columns can appear in any order, with ',' ';' or tab separators. "
+            "Include the food name, calories, protein, fat, and carbohydrates per 100 g. Fiber is optional.\n\n"
+            "Or import one food from a photo of its barcode (JPEG, PNG, WebP…): the barcode is read on this "
+            "computer, then the nutrients are looked up online and shown for you to check before saving. "
+            "You can also drop a CSV or a photo anywhere on the Foods page.",
             "food_name, calories/100g, protein/100g, fat/100g, carbohydrates/100g, fiber/100g",
             "Oats,120,6,4,20,8",
             self,
+            allow_photo=True,
         )
         if help_dialog.exec() != CsvImportHelpDialog.DialogCode.Accepted:
             return
         filename = getattr(help_dialog, "dropped_path", None)
-        if not filename:
+        photo = getattr(help_dialog, "selected_kind", "csv") == "photo"
+        if not filename and photo:
+            filename, _ = QFileDialog.getOpenFileName(self, "Select barcode photo", "", IMAGE_FILTER)
+        elif not filename:
             filename, _ = QFileDialog.getOpenFileName(
                 self, "Select food CSV", str(seed_csv_path()), "CSV files (*.csv);;All files (*)"
             )
-        if filename:
+        if not filename:
+            return
+        if photo:
+            self.import_photo(filename)
+        else:
             self.import_csv(filename)
 
     def handle_dropped_csv(self, path: str) -> None:
         """A .csv dropped on the Foods page goes straight to the review screen."""
         self.import_csv(path)
 
+    def handle_dropped_image(self, path: str) -> None:
+        """A photo dropped on the Foods page is read for a barcode and opens the food form to check."""
+        self.import_photo(path)
+
+    def import_photo(self, filename: str | Path) -> None:
+        """Photo → barcode (offline) → product lookup (online) → food form. Nothing is saved until Save."""
+        self.notify("Reading barcode…", 10_000)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            result = self.services.product_import.import_photo(filename)
+        finally:
+            QApplication.restoreOverrideCursor()
+        draft = result.draft_food()
+        if draft is None:  # no usable barcode: there is nothing to prefill, so say why
+            QMessageBox.warning(self, "Barcode photo", result.message)
+            return
+        message = f"{result.message}\n{ATTRIBUTION}" if result.status == FOUND else result.message
+        if result.status == OFFLINE:
+            self.notify(OFFLINE_NOTICE, 9_000)
+            message = f"{OFFLINE_NOTICE}\n{result.message}"
+        dialog = FoodDialog(
+            self, imported_food=draft, title="Review scanned product",
+            banner=("success" if result.found else "warning", message), image_path=str(filename),
+        )
+        if dialog.exec() != FoodDialog.DialogCode.Accepted:
+            self.notify("Nothing was added.")
+            return
+        food = dialog.food()
+        wanted = food.name.strip().casefold()
+        if any(existing.name.strip().casefold() == wanted for existing in self.services.foods.search(food.name)):
+            answer = QMessageBox.question(
+                self, "Food already exists",
+                f"A food named “{food.name}” is already in your catalogue. Add this one as well?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self.notify("Nothing was added.")
+                return
+        self.services.foods.save(food)
+        self.refresh()
+        self.notify(f"{food.name} added to your foods.")
+
     def import_csv(self, filename: str | Path) -> None:
         try:
-            preview = self.services.importer.preview(filename)
+            table = self.services.importer.read(filename)
         except (OSError, ValueError) as error:
             QMessageBox.critical(self, "Import preview failed", str(error))
+            return
+        preview = preview_with_repair(
+            self, table, self.services.importer, error_title="Fix the food CSV",
+            intro="Each food needs a name plus calories, protein, fat and carbohydrates per 100 g.",
+        )
+        if preview is None:
             return
         review = FoodCsvReviewDialog(preview, self)
         if review.exec() != QDialog.DialogCode.Accepted:

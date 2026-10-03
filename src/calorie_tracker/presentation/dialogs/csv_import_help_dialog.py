@@ -7,11 +7,17 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from calorie_tracker.presentation.csv_drop import CsvDropMixin
+from calorie_tracker.infrastructure.file_kinds import CSV, IMAGE
+from calorie_tracker.presentation.control_styles import fit_button_text
+from calorie_tracker.presentation.file_drop import FileDropMixin
 
 
-class CsvImportHelpDialog(CsvDropMixin, QDialog):
-    """Shows a valid CSV schema and example; a CSV can also be dropped straight onto it."""
+class CsvImportHelpDialog(FileDropMixin, QDialog):
+    """Shows a valid CSV schema and example; a file can also be dropped straight onto it.
+
+    With ``allow_photo`` the dialog also offers a barcode photo as the thing to import: ``selected_kind`` is
+    then ``"csv"`` or ``"photo"``, and a dropped file's content decides which it was.
+    """
 
     def __init__(
         self,
@@ -20,13 +26,19 @@ class CsvImportHelpDialog(CsvDropMixin, QDialog):
         schema: str,
         example: str,
         parent=None,
+        *,
+        allow_photo: bool = False,
     ):
         super().__init__(parent)
         self.dropped_path: str | None = None
-        self.init_csv_drop()
+        self.selected_kind = "csv"
+        self.allow_photo = allow_photo
+        self.drop_kinds = frozenset({CSV, IMAGE}) if allow_photo else frozenset({CSV})
+        self.init_file_drop()
         self.setWindowTitle(title)
-        self.setMinimumWidth(540)
+        self.setMinimumWidth(640 if allow_photo else 540)
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
         intro = QLabel(description)
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -49,24 +61,54 @@ class CsvImportHelpDialog(CsvDropMixin, QDialog):
         example_label.setWordWrap(True)
         layout.addWidget(example_label)
 
-        self.drop_zone = QLabel("⤓  Drag and drop a .csv file here to import it right away")
+        drop_text = (
+            "⤓  Drag and drop a .csv file or a photo of a barcode here"
+            if allow_photo else "⤓  Drag and drop a .csv file here to import it right away"
+        )
+        self.drop_zone = QLabel(drop_text)
         self.drop_zone.setObjectName("csvDropZone")
         self.drop_zone.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_zone.setWordWrap(True)
         self.drop_zone.setMinimumHeight(64)
         layout.addWidget(self.drop_zone)
 
         actions = QHBoxLayout()
+        actions.setSpacing(10)
         actions.addStretch(1)
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
+        actions.addWidget(cancel)
+        self.photo_button: QPushButton | None = None
+        if allow_photo:
+            self.photo_button = QPushButton("Choose barcode photo")
+            self.photo_button.setObjectName("choosePhotoButton")
+            self.photo_button.setAccessibleName("Choose a photo of a product barcode")
+            self.photo_button.setToolTip("Read a product's barcode from a photo and look up its nutrients")
+            self.photo_button.clicked.connect(self._choose_photo)
+            actions.addWidget(self.photo_button)
         self.choose_button = QPushButton("Choose CSV")
         self.choose_button.setObjectName("primaryButton")
         self.choose_button.setAccessibleName("Choose CSV file")
-        self.choose_button.clicked.connect(self.accept)
-        actions.addWidget(cancel)
+        self.choose_button.clicked.connect(self._choose_csv)
         actions.addWidget(self.choose_button)
         layout.addLayout(actions)
+        for button in self.findChildren(QPushButton):
+            fit_button_text(button)
+
+    def _choose_csv(self) -> None:
+        self.selected_kind = "csv"
+        self.accept()
+
+    def _choose_photo(self) -> None:
+        self.selected_kind = "photo"
+        self.accept()
 
     def handle_dropped_csv(self, path: str) -> None:
         self.dropped_path = path
+        self.selected_kind = "csv"
+        self.accept()
+
+    def handle_dropped_image(self, path: str) -> None:
+        self.dropped_path = path
+        self.selected_kind = "photo"
         self.accept()

@@ -6,7 +6,8 @@ import uuid
 from calorie_tracker.domain.nutrition import Nutrients, ZERO
 from calorie_tracker.domain.recipes import Food
 from .csv_headers import FOOD_FIELD_ALIASES, ColumnMatch, analyze_headers, describe_closest_header
-from .csv_reading import CsvReadError, parse_decimal, read_csv_rows
+from .csv_issues import CsvIssue, cell_text, header_issues
+from .csv_reading import CsvReadError, CsvTable, parse_decimal, read_csv_rows
 from .repositories import FoodRepository
 from .source_map import EXCLUDED_ICE_CREAM_NAMES
 
@@ -25,7 +26,16 @@ FOOD_CSV_FORMAT_GUIDANCE = (
 
 
 class ImportFormatError(ValueError):
-    """The source CSV does not have the explicitly reviewed layout."""
+    """The source CSV does not have the explicitly reviewed layout.
+
+    ``issues`` pin the problem to cells and ``table`` holds the rows that were read (when the file could be
+    read at all), so a repair screen can let the user fix them in memory.
+    """
+
+    def __init__(self, message: str, issues: tuple[CsvIssue, ...] = (), table: CsvTable | None = None):
+        super().__init__(message)
+        self.issues = issues
+        self.table = table
 
 
 @dataclass(frozen=True)
@@ -89,13 +99,47 @@ class CsvFoodImporter:
     def __init__(self, repository: FoodRepository):
         self.repository = repository
 
-    def preview(self, path: Path | str) -> ImportPreview:
+    def read(self, path: Path | str) -> CsvTable:
         try:
-            table = read_csv_rows(path)
+            return read_csv_rows(path)
         except CsvReadError as error:
             raise ImportFormatError(f"{error}. {FOOD_CSV_FORMAT_GUIDANCE}") from error
+
+    def preview(self, path: Path | str) -> ImportPreview:
+        return self.preview_table(self.read(path))
+
+    def issues_for(self, table: CsvTable) -> tuple[CsvIssue, ...]:
+        """Every missing-column or bad-value problem in ``table``, as cell positions (empty when it is clean)."""
+        try:
+            preview = self.preview_table(table)
+        except ImportFormatError as error:
+            return error.issues or (CsvIssue(0, None, str(error)),)
+        positions = {match.field: match.column for match in preview.column_matches}
+        issues: list[CsvIssue] = []
+        for invalid in preview.invalid_foods:
+            row = invalid.source_row - 1
+            for field in invalid.fields_to_correct:
+                column = positions.get(field)
+                if column is None:
+                    continue
+                raw = cell_text(table.rows, row, column)
+                if field == "food_name":
+                    message = "Food name is blank."
+                elif raw:
+                    message = f"“{raw}” is not a valid number. Enter 0 or more (per 100 g)."
+                else:
+                    message = "This value is required and is empty. Enter the amount per 100 g."
+                issues.append(CsvIssue(row, column, message))
+        return tuple(issues)
+
+    def preview_table(self, table: CsvTable) -> ImportPreview:
+        """Validate already-read rows. Used for the first read and again after in-memory edits."""
         rows = table.rows
-        header_index, analysis = self._find_header(rows)
+        try:
+            header_index, analysis = self._find_header(rows)
+        except ImportFormatError as error:
+            error.table = table
+            raise
         positions, ignored = analysis.positions, analysis.ignored
         header = rows[header_index]
         reviews: list[ImportRowReview] = []
@@ -202,13 +246,15 @@ class CsvFoodImporter:
                 duplicate_labels = ", ".join(FIELD_LABELS.get(field, field) for field in analysis.duplicates)
                 raise ImportFormatError(
                     "The food CSV contains duplicate headers for the same field: "
-                    + duplicate_labels + ".\n\n" + FOOD_CSV_FORMAT_GUIDANCE
+                    + duplicate_labels + ".\n\n" + FOOD_CSV_FORMAT_GUIDANCE,
+                    header_issues(rows, FOOD_FIELD_ALIASES, FOOD_REQUIRED_FIELDS, FIELD_LABELS),
                 )
             return index, analysis
         closest = describe_closest_header(rows, FOOD_FIELD_ALIASES, FOOD_REQUIRED_FIELDS)
         raise ImportFormatError(
             "Could not find a food catalogue header with all required fields within the first 50 rows. "
-            + (closest + " " if closest else "") + FOOD_CSV_FORMAT_GUIDANCE
+            + (closest + " " if closest else "") + FOOD_CSV_FORMAT_GUIDANCE,
+            header_issues(rows, FOOD_FIELD_ALIASES, FOOD_REQUIRED_FIELDS, FIELD_LABELS),
         )
 
     def apply(self, preview: ImportPreview) -> ImportResult:

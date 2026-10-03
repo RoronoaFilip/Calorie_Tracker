@@ -2,13 +2,17 @@ from decimal import Decimal
 import uuid
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QSizePolicy,
     QVBoxLayout,
 )
 
@@ -23,7 +27,13 @@ NUTRIENT_LABELS = (
 )
 
 
+BANNER_LEVELS = ("info", "success", "warning")
+_THUMBNAIL_SIZE = (150, 110)
+
+
 class FoodDialog(QDialog):
+    """Add/edit a food. ``banner`` ((level, text)) and ``image_path`` explain where a prefilled food came from."""
+
     def __init__(
         self,
         parent=None,
@@ -32,22 +42,41 @@ class FoodDialog(QDialog):
         imported_food: Food | None = None,
         correction_fields: tuple[str, ...] = (),
         correction_errors: tuple[str, ...] = (),
+        title: str | None = None,
+        banner: tuple[str, str] | None = None,
+        image_path: str | None = None,
     ):
         super().__init__(parent)
-        if food:
+        if title:
+            self.setWindowTitle(title)
+        elif food:
             self.setWindowTitle("Edit food")
         elif imported_food:
             self.setWindowTitle("Correct imported food")
         else:
             self.setWindowTitle("Add food")
-        self.setMinimumWidth(380)
+        self.setMinimumWidth(560 if banner else 460)
         initial_food = food or imported_food
         self._food_id = initial_food.id if initial_food else str(uuid.uuid4())
         self._correction_fields = set(correction_fields)
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        self.banner_frame: QFrame | None = None
+        self.banner_label: QLabel | None = None
+        self.photo_label: QLabel | None = None
+        if banner or image_path:
+            self._build_banner(banner, image_path, layout)
         form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setVerticalSpacing(9)
+        form.setHorizontalSpacing(14)
         self.name_input = QLineEdit(initial_food.name if initial_food else "")
         self.name_input.setAccessibleName("Food name")
+        self.name_input.setMinimumWidth(300)
+        self.name_input.setCursorPosition(0)
+        self.name_input.textChanged.connect(self.name_input.setToolTip)  # long names stay readable on hover
+        self.name_input.setToolTip(self.name_input.text())
         form.addRow("Food name", self.name_input)
         self.nutrient_inputs = {}
         for key, label in NUTRIENT_LABELS:
@@ -55,6 +84,8 @@ class FoodDialog(QDialog):
             field.setRange(0, 1_000_000)
             field.setDecimals(4)
             field.setSingleStep(1 if key == "calories" else 0.1)
+            field.setMinimumWidth(160)  # room for the number plus the stepper buttons
+            field.setAlignment(Qt.AlignmentFlag.AlignRight)
             field.setAccessibleName(f"{label} per 100g")
             if initial_food:
                 field.setValue(float(getattr(initial_food.nutrients_per_100g, key)))
@@ -78,6 +109,43 @@ class FoodDialog(QDialog):
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _build_banner(self, banner: tuple[str, str] | None, image_path: str | None, layout: QVBoxLayout) -> None:
+        level, text = banner if banner else ("info", "")
+        if level not in BANNER_LEVELS:
+            raise ValueError(f"Unknown banner level: {level}")
+        frame = QFrame()
+        frame.setObjectName("dialogBanner")
+        frame.setProperty("level", level)
+        row = QHBoxLayout(frame)
+        row.setContentsMargins(12, 10, 12, 10)
+        row.setSpacing(12)
+        if image_path:
+            pixmap = QPixmap(image_path)
+            photo = QLabel()
+            photo.setObjectName("foodPhotoPreview")
+            photo.setAccessibleName("Photo you imported")
+            photo.setFixedSize(*_THUMBNAIL_SIZE)
+            photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            if pixmap.isNull():
+                photo.setText("Photo")
+            else:
+                photo.setPixmap(pixmap.scaled(
+                    *_THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
+                ))
+            row.addWidget(photo, 0, Qt.AlignmentFlag.AlignTop)
+            self.photo_label = photo
+        if text:
+            label = QLabel(text)
+            label.setObjectName("dialogBannerText")
+            label.setWordWrap(True)
+            label.setMinimumWidth(280)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
+            row.addWidget(label, 1)
+            self.banner_label = label
+        layout.addWidget(frame)
+        self.banner_frame = frame
 
     def _validate_and_accept(self) -> None:
         if self._correction_fields:

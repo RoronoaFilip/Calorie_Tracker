@@ -259,25 +259,38 @@ class PresentationTests(unittest.TestCase):
             ("Breakfast", "Dinner"),
         )
 
-    def test_invalid_diary_csv_shows_expected_format_without_writing(self):
+    def test_invalid_diary_csv_opens_the_repair_popup_without_writing(self):
         source = Path(self.temp_dir.name) / "wrong.csv"
         source.write_text("description,serving\nOats,50\n", encoding="utf-8")
 
-        with patch("calorie_tracker.presentation.views.diary_view.QMessageBox.critical") as critical:
+        seen = []
+
+        def cancel_repair(dialog):
+            seen.append([issue.message for issue in dialog.issues])
+            return QDialog.DialogCode.Rejected
+
+        with patch("calorie_tracker.presentation.dialogs.csv_repair_dialog.CsvRepairDialog.exec", new=cancel_repair):
             self.window.diary_view.import_diary_csv(str(source))
 
-        self.assertIn("Expected header", critical.call_args.args[2])
-        self.assertIn("Example row", critical.call_args.args[2])
+        self.assertEqual(len(seen), 1)
+        self.assertIn("Food name", " ".join(seen[0]))
         self.assertEqual(self.services.diary.entries_for_day(self.window.diary_view.selected_date), ())
 
-    def test_invalid_catalogue_csv_shows_expected_format_without_writing(self):
+    def test_invalid_catalogue_csv_opens_the_repair_popup_without_writing(self):
         source = Path(self.temp_dir.name) / "wrong-foods.csv"
         source.write_text("name,calories\nOats,100\n", encoding="utf-8")
 
-        with patch("calorie_tracker.presentation.views.foods_view.QMessageBox.critical") as critical:
+        seen = []
+
+        def cancel_repair(dialog):
+            seen.append([issue.message for issue in dialog.issues])
+            return QDialog.DialogCode.Rejected
+
+        with patch("calorie_tracker.presentation.dialogs.csv_repair_dialog.CsvRepairDialog.exec", new=cancel_repair):
             self.window.foods_view.import_csv(source)
 
-        self.assertIn("Expected header columns", critical.call_args.args[2])
+        self.assertEqual(len(seen), 1)
+        self.assertIn("protein / 100g", " ".join(seen[0]))
         self.assertEqual(self.services.foods.search(), (self.services.foods.get("oats"),))
 
     def test_diary_picker_places_recent_foods_above_search_results(self):
@@ -474,33 +487,34 @@ class PresentationTests(unittest.TestCase):
 
         self.assertEqual([event[0] for event in events], ["schema", "picker", "schema", "picker"])
 
-    def test_food_csv_import_saves_corrected_invalid_row_without_overwriting_existing_food(self):
+    def test_food_csv_bad_value_is_fixed_in_the_repair_popup_and_imported_without_overwriting(self):
         source = Path(self.temp_dir.name) / "correction.csv"
-        source.write_text(
+        original = (
             "food_name,calories / 100g,protein / 100g,fat / 100g,carbohydrates / 100g,fiber / 100g\n"
-            "Barley,invalid,5,4,20,3\n",
-            encoding="utf-8",
+            "Barley,invalid,5,4,20,3\n"
         )
-        opened_fields = []
+        source.write_text(original, encoding="utf-8")
+        flagged = []
 
-        def correct(dialog):
-            opened_fields.extend(dialog._correction_fields)
-            self.assertEqual(dialog.name_input.text(), "Barley")
-            dialog.nutrient_inputs["calories"].setValue(120)
-            return FoodDialog.DialogCode.Accepted
+        def fix(dialog):
+            flagged.extend((issue.row, issue.column) for issue in dialog.issues)
+            self.assertEqual(dialog.cell_text(1, 0), "Barley")
+            dialog.set_cell(1, 1, "120")
+            self.assertEqual(dialog.issues, ())
+            return QDialog.DialogCode.Accepted
 
         with patch(
+            "calorie_tracker.presentation.dialogs.csv_repair_dialog.CsvRepairDialog.exec", new=fix,
+        ), patch(
             "calorie_tracker.presentation.views.foods_view.FoodCsvReviewDialog.exec",
             return_value=QDialog.DialogCode.Accepted,
-        ), patch(
-            "calorie_tracker.presentation.views.foods_view.FoodDialog.exec",
-            new=correct,
         ):
             self.window.foods_view.import_csv(source)
 
-        self.assertEqual(opened_fields, ["calories"])
+        self.assertEqual(flagged, [(1, 1)])
         self.assertEqual(self.services.foods.search("Barley")[0].nutrients_per_100g.calories, Decimal("120"))
         self.assertEqual(self.services.foods.get("oats").nutrients_per_100g.calories, Decimal("380"))
+        self.assertEqual(source.read_text(encoding="utf-8"), original)  # the file itself is never edited
 
     def test_corrected_food_csv_row_with_existing_name_is_not_saved(self):
         source = Path(self.temp_dir.name) / "conflict.csv"
@@ -510,25 +524,22 @@ class PresentationTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        def correct(dialog):
-            dialog.nutrient_inputs["calories"].setValue(120)
-            return FoodDialog.DialogCode.Accepted
+        def fix(dialog):
+            dialog.set_cell(1, 1, "120")
+            return QDialog.DialogCode.Accepted
 
         with patch(
+            "calorie_tracker.presentation.dialogs.csv_repair_dialog.CsvRepairDialog.exec", new=fix,
+        ), patch(
             "calorie_tracker.presentation.views.foods_view.FoodCsvReviewDialog.exec",
             return_value=QDialog.DialogCode.Accepted,
-        ), patch(
-            "calorie_tracker.presentation.views.foods_view.FoodDialog.exec",
-            new=correct,
-        ), patch(
-            "calorie_tracker.presentation.views.foods_view.QMessageBox.warning",
-        ) as warning:
+        ):
             self.window.foods_view.import_csv(source)
 
         oats = self.services.foods.search("Oats")
         self.assertEqual(len(oats), 1)
         self.assertEqual(oats[0].nutrients_per_100g.calories, Decimal("380"))
-        warning.assert_called_once()
+        self.assertIn("1 name conflicts", self.window.statusBar().currentMessage())
 
     def test_all_dropdown_and_spin_arrows_have_clear_indicators_and_light_popups(self):
         stylesheet = self.window.styleSheet()

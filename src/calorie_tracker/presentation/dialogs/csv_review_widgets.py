@@ -18,6 +18,7 @@ ERROR_BG = QColor("#fbe1e4")
 SKIPPED_BG = QColor("#e7ebf2")
 
 _GOOD, _WARN, _BAD, _MUTED = "#1f7a4d", "#9a6700", "#b53d48", "#5b6778"
+GOOD_TEXT, BAD_TEXT = _GOOD, _BAD
 
 
 def mapping_html(

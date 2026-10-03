@@ -11,7 +11,8 @@ from calorie_tracker.infrastructure.csv_headers import (
     analyze_headers,
     describe_closest_header,
 )
-from calorie_tracker.infrastructure.csv_reading import CsvReadError, parse_decimal, read_csv_rows
+from calorie_tracker.infrastructure.csv_issues import CsvIssue, header_issues
+from calorie_tracker.infrastructure.csv_reading import CsvReadError, CsvTable, parse_decimal, read_csv_rows
 from calorie_tracker.infrastructure.repositories import FoodRepository
 
 
@@ -32,8 +33,20 @@ _MEAL_WORDS = {
 }
 
 
+_DIARY_LABELS = {"food_name": "Food name", "amount_g": "Amount (g)", "meal": "Meal"}
+
+
 class DiaryCsvFormatError(ValueError):
-    """The selected CSV does not contain the columns needed for diary import."""
+    """The selected CSV does not contain the columns needed for diary import.
+
+    ``issues`` pin the problem to cells and ``table`` holds the rows that were read (when the file could be
+    read at all), so a repair screen can let the user fix them in memory.
+    """
+
+    def __init__(self, message: str, issues: tuple[CsvIssue, ...] = (), table: CsvTable | None = None):
+        super().__init__(message)
+        self.issues = issues
+        self.table = table
 
 
 @dataclass(frozen=True)
@@ -44,6 +57,9 @@ class DiaryCsvRow:
     meal: str | None
     catalogue_item_id: str | None
     error: str | None = None
+    # (field, message) for bad *values* (blank name, unusable amount or meal) as opposed to catalogue matching
+    # problems; the CSV repair screen is shown for these.
+    value_problems: tuple[tuple[str, str], ...] = ()
 
     @property
     def is_importable(self) -> bool:
@@ -81,14 +97,36 @@ class CsvDiaryImporter:
     def __init__(self, foods: FoodRepository):
         self.foods = foods
 
-    def preview(self, path: Path | str) -> DiaryCsvPreview:
+    def read(self, path: Path | str) -> CsvTable:
         try:
-            table = read_csv_rows(path)
+            return read_csv_rows(path)
         except (OSError, CsvReadError) as error:
             raise DiaryCsvFormatError(f"Could not validate this CSV file: {error}{FORMAT_GUIDANCE}") from error
-        rows = table.rows
 
-        header_index, analysis = self._find_header(rows)
+    def preview(self, path: Path | str) -> DiaryCsvPreview:
+        return self.preview_table(self.read(path))
+
+    def issues_for(self, table: CsvTable) -> tuple[CsvIssue, ...]:
+        """Missing-column and bad-value (name, amount, meal) problems in ``table`` as cell positions."""
+        try:
+            preview = self.preview_table(table)
+        except DiaryCsvFormatError as error:
+            return error.issues or (CsvIssue(0, None, str(error)),)
+        positions = {match.field: match.column for match in preview.column_matches}
+        return tuple(
+            CsvIssue(row.source_row - 1, positions.get(field), message)
+            for row in preview.rows
+            for field, message in row.value_problems
+        )
+
+    def preview_table(self, table: CsvTable) -> DiaryCsvPreview:
+        """Validate already-read rows. Used for the first read and again after in-memory edits."""
+        rows = table.rows
+        try:
+            header_index, analysis = self._find_header(rows)
+        except DiaryCsvFormatError as error:
+            error.table = table
+            raise
         columns = analysis.positions
         foods_by_name: dict[str, list[str]] = {}
         display_names: dict[str, str] = {}
@@ -108,19 +146,24 @@ class CsvDiaryImporter:
             meal_text = get(columns["meal"]) if "meal" in columns else ""
             amount: Decimal | None = None
             errors: list[str] = []
+            value_problems: list[tuple[str, str]] = []
+
+            def value_problem(field: str, message: str) -> None:
+                errors.append(message)
+                value_problems.append((field, message))
 
             if not name:
-                errors.append("Food name is blank.")
+                value_problem("food_name", "Food name is blank.")
             else:
                 try:
                     amount = parse_decimal(amount_text)
                     if not amount.is_finite() or amount <= 0:
-                        errors.append("Amount must be a finite number greater than 0 g.")
+                        value_problem("amount_g", "Amount must be a finite number greater than 0 g.")
                 except (InvalidOperation, ValueError):
-                    errors.append(
+                    value_problem("amount_g", (
                         f"Amount '{amount_text}' is not a number; use grams such as 45 or 45.5."
                         if amount_text else "Amount must be a number greater than 0 g (it is empty)."
-                    )
+                    ))
 
             key = _name_key(name)
             matches = foods_by_name.get(key, []) if name else []
@@ -138,10 +181,11 @@ class CsvDiaryImporter:
             if meal_text:
                 meal = _MEAL_WORDS.get(meal_text.casefold())
                 if meal is None:
-                    errors.append(f"Meal '{meal_text}' is not Breakfast, Lunch, Dinner, or Snacks.")
+                    value_problem("meal", f"Meal '{meal_text}' is not Breakfast, Lunch, Dinner, or Snacks.")
 
             parsed.append(DiaryCsvRow(
-                index + 1, name, amount, meal, food_id, "; ".join(errors) if errors else None
+                index + 1, name, amount, meal, food_id, "; ".join(errors) if errors else None,
+                tuple(value_problems),
             ))
         return DiaryCsvPreview(
             tuple(parsed), analysis.matches, analysis.ignored, header_index + 1, table.delimiter
@@ -161,12 +205,14 @@ class CsvDiaryImporter:
                 )
                 raise DiaryCsvFormatError(
                     "The CSV contains duplicate headers for the same field: "
-                    + duplicate_labels + "." + FORMAT_GUIDANCE
+                    + duplicate_labels + "." + FORMAT_GUIDANCE,
+                    header_issues(rows, DIARY_FIELD_ALIASES, ("food_name", "amount_g"), _DIARY_LABELS),
                 )
             return index, analysis
         closest = describe_closest_header(rows, DIARY_FIELD_ALIASES, ("food_name", "amount_g"))
         raise DiaryCsvFormatError(
             "This file is not in the diary import format. It needs a food name and amount header "
             f"(for example '{FOOD_NAME_HEADER}' and '{AMOUNT_HEADER}')."
-            + (f"\n\n{closest}" if closest else "") + FORMAT_GUIDANCE
+            + (f"\n\n{closest}" if closest else "") + FORMAT_GUIDANCE,
+            header_issues(rows, DIARY_FIELD_ALIASES, ("food_name", "amount_g"), _DIARY_LABELS),
         )

@@ -20,7 +20,7 @@ The project dependencies are declared in `pyproject.toml` and installed into `.v
 python app.py
 ```
 
-The first launch creates `data\calorie_tracker.sqlite3` and seeds the basic foods from `food_macros_seed.csv`. Only mapped per-100 g fields are imported; both ice cream rows are excluded, recipes are not seeded, and existing catalogue entries are never overwritten. **Foods → CSV Import** is available for reviewing a separate catalogue import.
+The first launch creates `data\calorie_tracker.sqlite3` and seeds the basic foods from `food_macros_seed.csv`. Only mapped per-100 g fields are imported; both ice cream rows are excluded, recipes are not seeded, and existing catalogue entries are never overwritten. **Foods → Import CSV or photo** is available for reviewing a separate catalogue import.
 
 ## Import diary entries for a day
 
@@ -38,9 +38,13 @@ Accepted names include `food_name` / `food` / `name` / `product`, and `grams_eat
 
 The `meal` column is optional. In the review table, every row has a **Choose meal / Change meal…** button (or double-click the row) that you can use as often as you like: pick one meal, or **Split between meals…** to share an amount, e.g. 500 g of potatoes as 200 g Lunch + 300 g Dinner. **Show only rows that need attention** hides rows that are ready. Existing diary entries have a **Split** button too.
 
-## Import foods from CSV
+## Import foods from CSV or a barcode photo
 
-**Foods → CSV Import** (or drag a `.csv` onto the Foods page) opens the same kind of review: how columns were detected (typo-tolerant, marked "approximate" when guessed), every row coloured by status, and then a correction form for rows with bad values. Existing foods are never overwritten.
+**Foods → Import CSV or photo** (or drag a file onto the Foods page — a CSV *or* a photo of any common format) opens the same kind of review: how columns were detected (typo-tolerant, marked "approximate" when guessed) and every row coloured by status. Existing foods are never overwritten.
+
+If a CSV can't be read because a required column is missing or a value is wrong, a **repair popup** shows the whole file as an editable table. Fix cells (including header names) in memory, then **Resubmit**; your file on disk is never changed. The Diary CSV import uses the same popup.
+
+A photo of a product's barcode is read on your computer, then the nutrients are looked up on Open Food Facts (internet needed) and shown in the food form to check; nothing is saved until you press Save. Offline, the form still opens blank with a "no internet connection" notice. See `docs/barcode-and-csv-repair.md`.
 
 ## Handy details
 

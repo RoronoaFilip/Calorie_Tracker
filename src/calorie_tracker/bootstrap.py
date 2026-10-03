@@ -6,8 +6,11 @@ from pathlib import Path
 from . import paths
 from .application.catalogue import CatalogueService
 from .application.diary import DiaryService
+from .application.product_import import BarcodeReader, ProductImportService, ProductLookup
 from .infrastructure.database import Database
 from .infrastructure.backup import BackupService
+from .infrastructure.barcode_reader import ZxingBarcodeReader
+from .infrastructure.open_food_facts import OpenFoodFactsLookup
 from .infrastructure.importer import CsvFoodImporter
 from .infrastructure.diary_csv_importer import CsvDiaryImporter
 from .infrastructure.repositories import (
@@ -30,6 +33,7 @@ class ApplicationServices:
     importer: CsvFoodImporter
     diary_importer: CsvDiaryImporter
     backup: BackupService
+    product_import: ProductImportService
 
 
 def _configure_logging(data_dir: Path) -> None:
@@ -48,6 +52,9 @@ def _configure_logging(data_dir: Path) -> None:
 def build_services(
     database_path: Path | str,
     seed_source_path: Path | str | None = None,
+    *,
+    barcode_reader: BarcodeReader | None = None,
+    product_lookup: ProductLookup | None = None,
 ) -> ApplicationServices:
     path = Path(database_path)
     database = Database(path)
@@ -84,6 +91,7 @@ def build_services(
     return ApplicationServices(
         database, foods, recipes, diary_repository, settings, catalogue, diary,
         importer, diary_importer, backup,
+        ProductImportService(barcode_reader or ZxingBarcodeReader(), product_lookup or OpenFoodFactsLookup()),
     )
 
 

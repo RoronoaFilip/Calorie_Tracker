@@ -32,6 +32,7 @@ from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCs
 from calorie_tracker.presentation.dialogs.meal_split_dialog import MealSplitDialog
 from calorie_tracker.domain.diary import MealPortion
 from calorie_tracker.presentation.csv_drop import CsvDropMixin
+from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
 
 
 def _amount(value: Decimal) -> str:
@@ -322,9 +323,15 @@ class DiaryView(CsvDropMixin, QWidget):
 
     def import_diary_csv(self, filename: str) -> None:
         try:
-            preview = self.services.diary_importer.preview(filename)
+            table = self.services.diary_importer.read(filename)
         except (OSError, ValueError) as error:
             QMessageBox.critical(self, "CSV validation failed", str(error))
+            return
+        preview = preview_with_repair(
+            self, table, self.services.diary_importer, error_title="Fix the diary CSV",
+            intro="Each row needs a food name and an amount in grams; the meal is optional.",
+        )
+        if preview is None:
             return
         dialog = DiaryCsvReviewDialog(self.services, self.selected_date, preview, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
