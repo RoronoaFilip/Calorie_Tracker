@@ -1,68 +1,68 @@
-# Calorie Tracker
+# Daily Plate
 
-A local desktop calorie and macro tracker. Food records and diary entries stay in a SQLite database on this computer.
+**A private calorie and macro tracker that lives entirely on your computer.**
 
-## Set up the project
+Log what you eat, build your own food and recipe catalogue, and see how each day adds up against your targets. There are no accounts, no cloud and no ads. Your data is a single file on your own disk.
 
-From the project directory, create and activate the virtual environment in PowerShell:
+## What you can do
+
+### Track your day
+- Log foods and recipes by gram amount into **Breakfast, Lunch, Dinner and Snacks**.
+- See calories and nutrients add up per meal and for the whole day.
+- Set **daily targets** in Settings. Progress bars on the Diary page show how you're doing; leave a target unset and its bar is hidden.
+- Find foods fast with search and a **Recently used** list.
+- Made a mistake? **Undo delete** brings back the last entry you removed.
+- Ate one food across several meals? **Split** an amount, for example 500 g of potatoes as 200 g at lunch and 300 g at dinner.
+
+### Build your own catalogue
+- Add foods with their nutrients per 100 g: calories, fat, saturated fat, carbohydrates, sugars, protein, fibre, omega-3 and omega-6.
+- Create **recipes** from your foods. The final yield and nutrition per 100 g are calculated from the ingredients for you.
+- Archive foods you no longer use. Past diary days keep the values they were logged with, so history never changes behind your back.
+- Starts with a ready-made set of basic foods.
+
+### Bring your data in
+- **Import a day from CSV.** Drop a spreadsheet export onto the Diary page. Column names are matched flexibly, and the separators `, ; tab |`, decimal commas (`45,5`) and units (`45 g`) are understood. A review table shows how every row was read, with "did you mean" hints for foods it can't find. Nothing is saved until you confirm.
+- **Import foods from CSV.** Same idea for your catalogue. Existing foods are never overwritten.
+- **Add a food from a barcode photo.** Drop a photo of a product's barcode onto the Foods page (JPEG, PNG, WebP and other common formats). The barcode is read on your computer and the nutrients are looked up on [Open Food Facts](https://world.openfoodfacts.org). The food form opens pre-filled so you can check it, and nothing is added until you press Save. If you're offline, the form still opens blank, with a notice that there's no internet connection.
+- **Fix broken CSVs on the spot.** If a column is missing or a value is invalid, a popup shows the whole file as an editable table. Correct the cells (including column names) and resubmit, or skip the bad rows. Your original file is never changed.
+
+### Look back
+- A **Calendar** of past days: a green tick for days with entries and a red cross for days without, starting from your first logged day. Click a date to open it.
+
+### Keep your data safe
+- **Export and restore backups** from Settings.
+- **Export your diary to CSV** whenever you like, and open the data folder straight from the app.
+- Everything stays local. The only time the app uses the internet is the barcode lookup, and only when you import a barcode photo; just the barcode number is sent, never the photo.
+
+## Tips
+
+- You can drag a CSV or photo almost anywhere on the Foods page, and a CSV anywhere on the Diary page.
+- **Ctrl+W** closes any pop-up window.
+
+---
+
+## Local setup
+
+**Requirements:** Python 3.14 and Windows (the commands below use PowerShell).
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e .
-```
-
-The project dependencies are declared in `pyproject.toml` and installed into `.venv`.
-
-## Run the app
-
-```powershell
 python app.py
 ```
 
-The first launch creates `data\calorie_tracker.sqlite3` and seeds the basic foods from `food_macros_seed.csv`. Only mapped per-100 g fields are imported; both ice cream rows are excluded, recipes are not seeded, and existing catalogue entries are never overwritten. **Foods → Import CSV or photo** is available for reviewing a separate catalogue import.
+The first launch creates `data\calorie_tracker.sqlite3` and fills it with the basic foods from `food_macros_seed.csv`.
 
-## Import diary entries for a day
+Barcode photos need the `zxing-cpp` and `Pillow` packages, which install with the command above. If `zxing-cpp` has no build for your platform, the rest of the app still works and the barcode option explains what's missing.
 
-Open **Diary**, choose any date with the date picker or **Calendar**, then select **Import CSV** — or simply **drag a `.csv` file onto the Diary page**. The importer validates the full file and shows how it read your columns, every row with a colour-coded status, and "did you mean" hints for unknown foods. Nothing is saved until you choose Import. Foods are matched by name against active basic foods in the catalogue (ignoring capitalization and extra spaces); imported entries are appended to the selected day, and existing entries are kept.
-
-The CSV needs a food column and an amount column; the header can be on the first row or follow a short report preamble, and the columns can be in any order:
-
-```csv
-food_name,grams_eaten,meal
-Oats,45.5,Breakfast
-Banana,120,Snacks
-```
-
-Accepted names include `food_name` / `food` / `name` / `product`, and `grams_eaten` / `grams eaten` / `grams` / `amount` / `quantity` (the older `grams_eaten (all meals)` also works). Comma, semicolon, tab or pipe separators, decimal commas (`45,5`) and units (`45 g`) are understood.
-
-The `meal` column is optional. In the review table, every row has a **Choose meal / Change meal…** button (or double-click the row) that you can use as often as you like: pick one meal, or **Split between meals…** to share an amount, e.g. 500 g of potatoes as 200 g Lunch + 300 g Dinner. **Show only rows that need attention** hides rows that are ready. Existing diary entries have a **Split** button too.
-
-## Import foods from CSV or a barcode photo
-
-**Foods → Import CSV or photo** (or drag a file onto the Foods page — a CSV *or* a photo of any common format) opens the same kind of review: how columns were detected (typo-tolerant, marked "approximate" when guessed) and every row coloured by status. Existing foods are never overwritten.
-
-If a CSV can't be read because a required column is missing or a value is wrong, a **repair popup** shows the whole file as an editable table. Fix cells (including header names) in memory, then **Resubmit**; your file on disk is never changed. The Diary CSV import uses the same popup.
-
-A photo of a product's barcode is read on your computer, then the nutrients are looked up on Open Food Facts (internet needed) and shown in the food form to check; nothing is saved until you press Save. Offline, the form still opens blank with a "no internet connection" notice. See `docs/barcode-and-csv-repair.md`.
-
-## Handy details
-
-- **Ctrl+W** closes any pop-up window (never the main window).
-- The **Calendar** shows a green tick on past days with entries and a red cross on past days without any, starting from your first logged day.
-- **Settings → Your data** shows where your data lives, opens that folder, and exports the whole diary to CSV.
-
-## Build a single .exe
-
-See [`exe/BUILD_EXE.md`](exe/BUILD_EXE.md) (run `exe\build_exe.ps1` on Windows).
-
-## Run the checks
-
-The tests use Python's built-in `unittest` runner. On Windows, set Qt to its offscreen platform so the UI checks can run without opening windows:
+**Run the tests**
 
 ```powershell
 $env:QT_QPA_PLATFORM = "offscreen"
 python -m unittest discover -v
 ```
 
-Tests use temporary databases and do not modify the app's `data` folder.
+Tests use temporary databases and never touch your `data` folder.
+
+**Build a single .exe:** see [`exe/BUILD_EXE.md`](exe/BUILD_EXE.md) and run `exe\build_exe.ps1`.
