@@ -13,6 +13,7 @@ exports/
 backups
 exe/*
 !exe/DailyPlate.spec
+!exe/app.ico
 docs
 
 .coverage

@@ -17,6 +17,7 @@ from calorie_tracker.presentation.views.foods_view import FoodsView
 from calorie_tracker.presentation.views.diary_view import DiaryView
 from calorie_tracker.presentation.views.calendar_view import CalendarView
 from calorie_tracker.presentation.views.settings_view import SettingsView
+from calorie_tracker.presentation.app_icon import load_app_icon
 from calorie_tracker.presentation.control_styles import install_pointing_cursors
 
 
@@ -33,6 +34,7 @@ class MainWindow(QMainWindow):
         install_pointing_cursors(QApplication.instance())
         self.services = services
         self.setWindowTitle("Daily Plate · Calorie Tracker")
+        self.setWindowIcon(load_app_icon())
         self.setMinimumSize(1040, 680)
         self.resize(1280, 820)
         self._nav_buttons: dict[str, QPushButton] = {}

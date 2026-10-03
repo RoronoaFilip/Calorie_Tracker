@@ -813,6 +813,12 @@ class PresentationTests(unittest.TestCase):
                          "QPushButton#addFoodButton", "QPushButton#undoButton"):
             self.assertIn(selector, sheet)
 
+    def test_window_has_the_application_icon(self):
+        from calorie_tracker.presentation.app_icon import ICON_PATH, load_app_icon
+
+        self.assertTrue(ICON_PATH.is_file())
+        self.assertFalse(load_app_icon().isNull())
+        self.assertFalse(self.window.windowIcon().isNull())
 
 if __name__ == "__main__":
     unittest.main()
