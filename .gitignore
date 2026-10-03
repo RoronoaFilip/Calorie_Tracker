@@ -11,7 +11,8 @@ exports/
 .venv/
 *.egg-info/
 backups
-exe
+exe/*
+!exe/DailyPlate.spec
 docs
 
 .coverage
