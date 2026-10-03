@@ -144,7 +144,7 @@ class DiaryCsvImporterTests(unittest.TestCase):
 
         with self.assertRaises(DiaryCsvFormatError) as context:
             self.importer.preview(path)
-        self.assertIn("Expected header: food_name,grams_eaten (all meals),meal", str(context.exception))
+        self.assertIn("Expected header: food_name,grams_eaten,meal", str(context.exception))
         self.assertIn("Oats,45.5,Breakfast", str(context.exception))
 
     def test_preview_reports_malformed_csv_syntax_with_expected_format(self):

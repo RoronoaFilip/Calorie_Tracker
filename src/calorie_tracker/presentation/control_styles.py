@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractButton,
     QAbstractItemView,
@@ -9,7 +9,9 @@ from PySide6.QtWidgets import (
     QApplication,
     QCalendarWidget,
     QComboBox,
+    QDialog,
     QMenu,
+    QPushButton,
     QTableView,
     QToolButton,
     QWidget,
@@ -20,11 +22,44 @@ _ASSETS = Path(__file__).resolve().parent / "assets"
 _CLICKABLE_TYPES = (QAbstractButton, QAbstractItemView, QAbstractSpinBox, QComboBox, QMenu)
 
 
+CLOSE_DIALOG_SHORTCUT = "Ctrl+W"
+
+
 class _PointingCursorFilter(QObject):
+    """Polish-time app-wide behaviour: hand cursors, text-safe buttons, Ctrl+W on popups."""
+
     def eventFilter(self, watched, event) -> bool:
-        if event.type() == QEvent.Type.Polish:
+        kind = event.type()
+        if kind == QEvent.Type.Polish:
             _set_pointing_cursor(watched)
+            if isinstance(watched, QPushButton):
+                fit_button_text(watched)
+            elif isinstance(watched, QDialog):
+                install_close_shortcut(watched)
+        elif kind == QEvent.Type.Show and isinstance(watched, QPushButton):
+            # By now the style sheet padding is applied, so the size hint is the real one.
+            fit_button_text(watched)
         return False
+
+
+def fit_button_text(button: QPushButton) -> None:
+    """Never let layouts or table cells squeeze a button below the width of its label."""
+    if not button.text():
+        return
+    hint = button.sizeHint().width()
+    if hint > button.minimumWidth():
+        button.setMinimumWidth(hint)
+
+
+def install_close_shortcut(dialog: QDialog) -> None:
+    """Make Ctrl+W close a popup dialog (never the main window, which is not a QDialog)."""
+    if dialog.property("closeShortcutInstalled"):
+        return
+    dialog.setProperty("closeShortcutInstalled", True)
+    shortcut = QShortcut(QKeySequence(CLOSE_DIALOG_SHORTCUT), dialog)
+    shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+    shortcut.setObjectName("closeDialogShortcut")
+    shortcut.activated.connect(dialog.reject)
 
 
 def _set_pointing_cursor(widget: QWidget) -> None:

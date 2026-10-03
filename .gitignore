@@ -10,6 +10,9 @@ exports/
 .runtime-deps/
 .venv/
 *.egg-info/
+backups
+exe
+docs
 
 .coverage
 coverage.xml

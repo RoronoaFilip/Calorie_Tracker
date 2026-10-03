@@ -227,24 +227,49 @@ class DiaryRepository:
     def add(self, entry: DiaryEntry) -> None:
         self.add_many((entry,))
 
+    @staticmethod
+    def _insert(connection: sqlite3.Connection, entry: DiaryEntry) -> None:
+        connection.execute(
+            """INSERT INTO diary_entries
+               (id, diary_date, meal, catalogue_item_id, display_name, amount_g, nutrients_snapshot_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (entry.id, entry.diary_date, entry.meal, entry.catalogue_item_id, entry.display_name,
+             str(entry.amount_g), _nutrients_to_json(entry.nutrients_per_100g)),
+        )
+        if entry.catalogue_item_id is not None:
+            connection.execute(
+                """INSERT INTO recent_foods(catalogue_item_id, last_used_at) VALUES (?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(catalogue_item_id) DO UPDATE SET last_used_at=CURRENT_TIMESTAMP""",
+                (entry.catalogue_item_id,),
+            )
+
     def add_many(self, entries: tuple[DiaryEntry, ...]) -> None:
         if not entries:
             return
         with self.database.transaction() as connection:
             for entry in entries:
-                connection.execute(
-                    """INSERT INTO diary_entries
-                       (id, diary_date, meal, catalogue_item_id, display_name, amount_g, nutrients_snapshot_json)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (entry.id, entry.diary_date, entry.meal, entry.catalogue_item_id, entry.display_name,
-                     str(entry.amount_g), _nutrients_to_json(entry.nutrients_per_100g)),
-                )
-                if entry.catalogue_item_id is not None:
-                    connection.execute(
-                        """INSERT INTO recent_foods(catalogue_item_id, last_used_at) VALUES (?, CURRENT_TIMESTAMP)
-                           ON CONFLICT(catalogue_item_id) DO UPDATE SET last_used_at=CURRENT_TIMESTAMP""",
-                        (entry.catalogue_item_id,),
-                    )
+                self._insert(connection, entry)
+
+    def replace(self, entry_id: str, entries: tuple[DiaryEntry, ...]) -> None:
+        """Atomically delete one entry and insert its replacements."""
+        with self.database.transaction() as connection:
+            cursor = connection.execute("DELETE FROM diary_entries WHERE id=?", (entry_id,))
+            if cursor.rowcount != 1:
+                raise KeyError(f"Diary entry not found: {entry_id}")
+            for entry in entries:
+                self._insert(connection, entry)
+
+    def first_date(self) -> str | None:
+        with self.database.read_connection() as connection:
+            row = connection.execute("SELECT MIN(diary_date) AS first FROM diary_entries").fetchone()
+        return row["first"] if row is not None else None
+
+    def all_entries(self) -> tuple[DiaryEntry, ...]:
+        with self.database.read_connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM diary_entries ORDER BY diary_date, rowid"
+            ).fetchall()
+        return tuple(self._entry_from_row(row) for row in rows)
 
     def get(self, entry_id: str) -> DiaryEntry | None:
         with self.database.read_connection() as connection:

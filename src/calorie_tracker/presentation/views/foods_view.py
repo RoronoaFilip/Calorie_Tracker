@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -15,15 +16,19 @@ from PySide6.QtWidgets import (
 )
 
 from calorie_tracker.bootstrap import ApplicationServices
-from calorie_tracker.domain.recipes import Food
+from calorie_tracker.paths import seed_csv_path
+from calorie_tracker.presentation.control_styles import fit_button_text
+from calorie_tracker.presentation.csv_drop import CsvDropMixin
 from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
+from calorie_tracker.presentation.dialogs.food_csv_review_dialog import FoodCsvReviewDialog
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
 
 
-class FoodsView(QWidget):
+class FoodsView(CsvDropMixin, QWidget):
     def __init__(self, services: ApplicationServices, notify):
         super().__init__()
+        self.init_csv_drop()
         self.services = services
         self.notify = notify
         self._selected: tuple[str, str] | None = None
@@ -45,6 +50,8 @@ class FoodsView(QWidget):
         self.create_recipe_button = QPushButton("Create recipe")
         self.create_recipe_button.setObjectName("primaryButton")
         self.import_button = QPushButton("CSV Import")
+        self.import_button.setObjectName("importFoodCsvButton")
+        self.import_button.setToolTip("Import foods from a CSV file, or drop a CSV anywhere on this page")
         self.add_food_button.clicked.connect(self._add_food)
         self.create_recipe_button.clicked.connect(self._create_recipe)
         self.import_button.clicked.connect(self._choose_import)
@@ -57,6 +64,7 @@ class FoodsView(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search foods and recipes")
         self.search_input.setAccessibleName("Search foods and recipes")
+        self.search_input.setAcceptDrops(False)  # let dropped CSVs reach the page
         layout.addWidget(self.search_input)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -119,6 +127,9 @@ class FoodsView(QWidget):
             lambda checked=False, item_kind=kind, catalogue_id=item_id, item_name=name:
             self._archive_catalogue_item(item_kind, catalogue_id, item_name)
         )
+        for button in (edit, archive):
+            button.setProperty("compact", True)
+            fit_button_text(button)
         row.edit_button = edit
         row.archive_button = archive
         layout.addWidget(edit)
@@ -196,19 +207,24 @@ class FoodsView(QWidget):
     def _choose_import(self) -> None:
         help_dialog = CsvImportHelpDialog(
             "Import foods from CSV",
-            "Food CSV columns can appear in any order. Include the food name, calories, protein, fat, and carbohydrates per 100g. Fiber is optional.",
+            "Food CSV columns can appear in any order, with ',' ';' or tab separators. Include the food name, calories, protein, fat, and carbohydrates per 100 g. Fiber is optional. You can also drop a CSV anywhere on the Foods page.",
             "food_name, calories/100g, protein/100g, fat/100g, carbohydrates/100g, fiber/100g",
             "Oats,120,6,4,20,8",
             self,
         )
         if help_dialog.exec() != CsvImportHelpDialog.DialogCode.Accepted:
             return
-        default_source = Path(__file__).resolve().parents[4] / "food_macros_seed.csv"
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Select food CSV", str(default_source), "CSV files (*.csv);;All files (*)"
-        )
+        filename = getattr(help_dialog, "dropped_path", None)
+        if not filename:
+            filename, _ = QFileDialog.getOpenFileName(
+                self, "Select food CSV", str(seed_csv_path()), "CSV files (*.csv);;All files (*)"
+            )
         if filename:
             self.import_csv(filename)
+
+    def handle_dropped_csv(self, path: str) -> None:
+        """A .csv dropped on the Foods page goes straight to the review screen."""
+        self.import_csv(path)
 
     def import_csv(self, filename: str | Path) -> None:
         try:
@@ -216,27 +232,8 @@ class FoodsView(QWidget):
         except (OSError, ValueError) as error:
             QMessageBox.critical(self, "Import preview failed", str(error))
             return
-        report = preview.report
-        details = (
-            f"Rows read: {report.rows_read}\nFoods ready to import: {report.importable}\n"
-            f"Ice cream rows excluded: {report.excluded_ice_cream_rows}\nDuplicate names: {report.duplicate_names}\n"
-            f"Blank names: {report.blank_names}\nMalformed rows: {report.malformed_rows}\n"
-            f"Rows needing correction: {len(preview.invalid_foods)}\n"
-            f"Ignored columns: {', '.join(report.ignored_headers)}"
-        )
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setWindowTitle("Review food import")
-        box.setText(details + "\n\nAdd these foods to the catalogue? Existing foods will not be overwritten.")
-        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        correction_errors = tuple(
-            message for invalid_food in preview.invalid_foods for message in invalid_food.errors
-        )
-        if correction_errors:
-            box.setDetailedText("\n".join(correction_errors))
-        answer = box.exec()
-        if answer != QMessageBox.StandardButton.Yes:
+        review = FoodCsvReviewDialog(preview, self)
+        if review.exec() != QDialog.DialogCode.Accepted:
             return
         result = self.services.importer.apply(preview)
         corrected = 0

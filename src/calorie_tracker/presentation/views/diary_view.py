@@ -24,9 +24,14 @@ from PySide6.QtWidgets import (
 from calorie_tracker.application.diary import MEALS
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.domain.diary import DiaryEntry
-from calorie_tracker.presentation.control_styles import style_calendar_arrows, style_chevron_button
+from calorie_tracker.domain.nutrition import Nutrients
+from calorie_tracker.presentation.control_styles import fit_button_text, style_calendar_arrows, style_chevron_button
+from calorie_tracker.infrastructure.diary_csv_importer import DiaryCsvFormatError
 from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog
+from calorie_tracker.presentation.dialogs.meal_split_dialog import MealSplitDialog
+from calorie_tracker.domain.diary import MealPortion
+from calorie_tracker.presentation.csv_drop import CsvDropMixin
 
 
 def _amount(value: Decimal) -> str:
@@ -107,11 +112,12 @@ class AddEntryDialog(QDialog):
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
 
-class DiaryView(QWidget):
+class DiaryView(CsvDropMixin, QWidget):
     _sixteen_pixel_font = "font-size: 16px;"
 
     def __init__(self, services: ApplicationServices, notify):
         super().__init__()
+        self.init_csv_drop()
         self.services = services
         self.notify = notify
         self.selected_date = date.today().isoformat()
@@ -139,6 +145,7 @@ class DiaryView(QWidget):
         self.date_picker.setDate(QDate.currentDate())
         self.date_picker.setAccessibleName("Selected diary date")
         self.date_picker.setToolTip("Choose the diary date")
+        self.date_picker.lineEdit().setAcceptDrops(False)  # let dropped CSVs reach the page
         self.date_picker.dateChanged.connect(self._date_changed)
         header.addWidget(self.date_picker)
         self.next_button = QPushButton()
@@ -147,6 +154,7 @@ class DiaryView(QWidget):
         self.next_button.clicked.connect(lambda: self.shift_date(1))
         header.addWidget(self.next_button)
         today_button = QPushButton("Today")
+        today_button.setObjectName("todayButton")
         today_button.clicked.connect(lambda: self.set_date(date.today().isoformat()))
         header.addWidget(today_button)
         self.import_csv_button = QPushButton("Import CSV")
@@ -156,6 +164,7 @@ class DiaryView(QWidget):
         self.import_csv_button.clicked.connect(self.choose_diary_csv)
         header.addWidget(self.import_csv_button)
         self.undo_button = QPushButton("Undo delete")
+        self.undo_button.setObjectName("undoButton")
         self.undo_button.setToolTip("Restore the diary entry you just deleted")
         self.undo_button.setVisible(False)
         self.undo_button.clicked.connect(self.undo_delete)
@@ -248,6 +257,7 @@ class DiaryView(QWidget):
             entries = QVBoxLayout()
             panel_layout.addLayout(entries)
             add = QPushButton(f"+ Add food to {meal}")
+            add.setObjectName("addFoodButton")
             add.setAccessibleName(f"Add food to {meal}")
             add.setStyleSheet("font-size: 14px;")
             add.setToolTip(f"Search foods and recipes for {meal}")
@@ -291,18 +301,24 @@ class DiaryView(QWidget):
     def choose_diary_csv(self) -> None:
         help_dialog = CsvImportHelpDialog(
             "Import diary entries from CSV",
-            "Match each row to a food already in your catalogue. Amounts are grams; meal/time is optional and can be assigned during review.",
-            "food_name, grams_eaten, meal",
+            "Match each row to a food already in your catalogue. Amounts are grams; meal/time is optional and can be assigned or split between meals during review. You can also drop a CSV anywhere on this page.",
+            "food_name, grams_eaten, meal  (column order and common alternative names are fine)",
             "Oats,45.5,Breakfast",
             self,
         )
         if help_dialog.exec() != CsvImportHelpDialog.DialogCode.Accepted:
             return
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Select diary CSV", "", "CSV files (*.csv);;All files (*)"
-        )
+        filename = getattr(help_dialog, "dropped_path", None)
+        if not filename:
+            filename, _ = QFileDialog.getOpenFileName(
+                self, "Select diary CSV", "", "CSV files (*.csv);;All files (*)"
+            )
         if filename:
             self.import_diary_csv(filename)
+
+    def handle_dropped_csv(self, path: str) -> None:
+        """A .csv dropped on the Diary page goes straight to the review screen."""
+        self.import_diary_csv(path)
 
     def import_diary_csv(self, filename: str) -> None:
         try:
@@ -396,6 +412,8 @@ class DiaryView(QWidget):
         delete.clicked.connect(lambda checked=False, entry_id=entry.id: self.delete_entry(entry_id))
         for button in (edit, delete):
             button.setAccessibleName(f"{button.text()} {entry.display_name}")
+            button.setProperty("compact", True)
+            fit_button_text(button)
             layout.addWidget(button)
         row.setObjectName(f"diaryEntry{entry.id}")
         self._entry_widgets[entry.id] = row
@@ -425,13 +443,49 @@ class DiaryView(QWidget):
         layout.addWidget(self.edit_amount_input)
         self._editing_entry_id = entry_id
         save = QPushButton("Save")
+        save.setObjectName("primaryButton")
+        save.setProperty("compact", True)
         save.clicked.connect(self.save_edit)
         save.setStyleSheet(self._sixteen_pixel_font)
         cancel = QPushButton("Cancel")
+        cancel.setProperty("compact", True)
         cancel.clicked.connect(self.cancel_edit)
         cancel.setStyleSheet(self._sixteen_pixel_font)
-        layout.addWidget(save)
-        layout.addWidget(cancel)
+        for button in (save, cancel):
+            fit_button_text(button)
+            layout.addWidget(button)
+        self.edit_amount_input.lineEdit().returnPressed.connect(self.save_edit)
+        # Ready to type: focus the grams field with its value selected.
+        self._focus_edit_amount()
+        QTimer.singleShot(0, self._focus_edit_amount)
+
+    def _focus_edit_amount(self) -> None:
+        field = getattr(self, "edit_amount_input", None)
+        if field is None:
+            return
+        try:
+            field.setFocus(Qt.FocusReason.OtherFocusReason)
+            field.selectAll()
+        except RuntimeError:  # the row was rebuilt before the deferred call ran
+            pass
+
+    def split_entry(self, entry_id: str) -> None:
+        entry = self.services.diary.diary.get(entry_id)
+        if entry is None:
+            return
+        dialog = MealSplitDialog(
+            entry.display_name, entry.amount_g, (MealPortion(entry.meal, entry.amount_g),), self
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.portions:
+            return
+        try:
+            self.services.diary.split_entry(entry_id, dialog.portions)
+        except (ValueError, KeyError) as error:
+            QMessageBox.critical(self, "Could not split entry", str(error))
+            return
+        self.refresh()
+        self.notify(f"Split {entry.display_name} between {len(dialog.portions)} meal"
+                    f"{'s' if len(dialog.portions) != 1 else ''}.")
 
     def save_edit(self) -> None:
         self.services.diary.edit_amount(self._editing_entry_id, Decimal(str(self.edit_amount_input.value())))

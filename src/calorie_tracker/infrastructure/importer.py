@@ -1,4 +1,3 @@
-import csv
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -6,7 +5,8 @@ import uuid
 
 from calorie_tracker.domain.nutrition import Nutrients, ZERO
 from calorie_tracker.domain.recipes import Food
-from .csv_headers import FOOD_FIELD_ALIASES, match_headers
+from .csv_headers import FOOD_FIELD_ALIASES, ColumnMatch, analyze_headers, describe_closest_header
+from .csv_reading import CsvReadError, parse_decimal, read_csv_rows
 from .repositories import FoodRepository
 from .source_map import EXCLUDED_ICE_CREAM_NAMES
 
@@ -57,10 +57,25 @@ class ImportReport:
 
 
 @dataclass(frozen=True)
+class ImportRowReview:
+    """One CSV row as shown in the review table (status: ready, needs_correction, duplicate, excluded)."""
+
+    source_row: int
+    name: str
+    values: dict[str, str]
+    status: str
+    message: str = ""
+
+
+@dataclass(frozen=True)
 class ImportPreview:
     foods: tuple[ImportFood, ...]
     report: ImportReport
     invalid_foods: tuple[InvalidImportFood, ...] = ()
+    rows: tuple[ImportRowReview, ...] = ()
+    column_matches: tuple[ColumnMatch, ...] = ()
+    header_row: int = 1
+    delimiter: str = ","
 
 
 @dataclass(frozen=True)
@@ -76,14 +91,14 @@ class CsvFoodImporter:
 
     def preview(self, path: Path | str) -> ImportPreview:
         try:
-            with Path(path).open("r", encoding="utf-8-sig", newline="") as stream:
-                rows = list(csv.reader(stream, strict=True))
-        except csv.Error as error:
-            raise ImportFormatError(
-                f"CSV syntax error: {error}. {FOOD_CSV_FORMAT_GUIDANCE}"
-            ) from error
-        header_index, positions, ignored = self._find_header(rows)
+            table = read_csv_rows(path)
+        except CsvReadError as error:
+            raise ImportFormatError(f"{error}. {FOOD_CSV_FORMAT_GUIDANCE}") from error
+        rows = table.rows
+        header_index, analysis = self._find_header(rows)
+        positions, ignored = analysis.positions, analysis.ignored
         header = rows[header_index]
+        reviews: list[ImportRowReview] = []
         foods: list[ImportFood] = []
         invalid_foods: list[InvalidImportFood] = []
         errors: list[str] = []
@@ -100,13 +115,20 @@ class CsvFoodImporter:
                 blank_names += 1
             elif normalized in seen_names:
                 duplicates += 1
+                reviews.append(ImportRowReview(
+                    source_row, name, {}, "duplicate", "Same name as an earlier row; skipped."
+                ))
                 continue
             else:
                 seen_names.add(normalized)
             if name and normalized in EXCLUDED_ICE_CREAM_NAMES:
                 excluded_ice_cream_rows += 1
+                reviews.append(ImportRowReview(
+                    source_row, name, {}, "excluded", "Ice cream rows are not imported."
+                ))
                 continue
             nutrients: dict[str, Decimal] = {}
+            shown: dict[str, str] = {}
             row_errors: list[str] = []
             correction_fields: list[str] = []
             if not name:
@@ -121,8 +143,9 @@ class CsvFoodImporter:
                 if not raw and field not in ("calories", "protein", "fat", "carbohydrates"):
                     nutrients[field] = ZERO
                     continue
+                shown[field] = raw
                 try:
-                    value = Decimal(raw)
+                    value = parse_decimal(raw)
                     if not value.is_finite() or value < ZERO:
                         raise InvalidOperation
                     nutrients[field] = value
@@ -131,7 +154,7 @@ class CsvFoodImporter:
                     correction_fields.append(field)
                     row_errors.append(
                         f"Row {source_row} ({name or 'unnamed food'}): enter a non-negative number in {header[position]}"
-                        + " (required)." if field in ("calories", "protein", "fat", "carbohydrates") else "."
+                        + (" (required)." if field in ("calories", "protein", "fat", "carbohydrates") else ".")
                     )
             if row_errors:
                 numeric_errors = [error for error in row_errors if "enter a non-negative number" in error]
@@ -149,32 +172,43 @@ class CsvFoodImporter:
                 invalid_foods.append(InvalidImportFood(
                     imported_food, source_key, source_row, tuple(correction_fields), tuple(row_errors)
                 ))
+                reviews.append(ImportRowReview(
+                    source_row, name, shown, "needs_correction",
+                    " ".join(row_errors).replace(f"Row {source_row}: ", "").replace(
+                        f"Row {source_row} ({name or 'unnamed food'}): ", ""
+                    ),
+                ))
             else:
                 foods.append(ImportFood(imported_food, source_key, source_row))
+                reviews.append(ImportRowReview(source_row, name, shown, "ready"))
         report = ImportReport(
             rows_read, len(foods), duplicates, blank_names, malformed,
             excluded_ice_cream_rows, ignored, tuple(errors)
         )
-        return ImportPreview(tuple(foods), report, tuple(invalid_foods))
+        return ImportPreview(
+            tuple(foods), report, tuple(invalid_foods), tuple(reviews),
+            analysis.matches, header_index + 1, table.delimiter,
+        )
 
     @staticmethod
-    def _find_header(rows: list[list[str]]) -> tuple[int, dict[str, int], tuple[str, ...]]:
+    def _find_header(rows: list[list[str]]):
         required = set(FOOD_REQUIRED_FIELDS)
         for index, row in enumerate(rows[:50]):
-            positions, duplicates, ignored = match_headers(row, FOOD_FIELD_ALIASES)
-            available = set(positions) | set(duplicates)
+            analysis = analyze_headers(row, FOOD_FIELD_ALIASES)
+            available = set(analysis.positions) | set(analysis.duplicates)
             if not required.issubset(available):
                 continue
-            if duplicates:
-                duplicate_labels = ", ".join(FIELD_LABELS.get(field, field) for field in duplicates)
+            if analysis.duplicates:
+                duplicate_labels = ", ".join(FIELD_LABELS.get(field, field) for field in analysis.duplicates)
                 raise ImportFormatError(
                     "The food CSV contains duplicate headers for the same field: "
                     + duplicate_labels + ".\n\n" + FOOD_CSV_FORMAT_GUIDANCE
                 )
-            return index, positions, ignored
+            return index, analysis
+        closest = describe_closest_header(rows, FOOD_FIELD_ALIASES, FOOD_REQUIRED_FIELDS)
         raise ImportFormatError(
             "Could not find a food catalogue header with all required fields within the first 50 rows. "
-            + FOOD_CSV_FORMAT_GUIDANCE
+            + (closest + " " if closest else "") + FOOD_CSV_FORMAT_GUIDANCE
         )
 
     def apply(self, preview: ImportPreview) -> ImportResult:

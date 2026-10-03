@@ -105,15 +105,21 @@ class MainWindow(QMainWindow):
             QLabel#brandSubtitle { color: #d6e0ef; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
             QLabel#privacyHint { color: #d0daea; font-size: 11px; }
             QLabel { background: transparent; color: #243041; }
-            QPushButton { border: 0; border-radius: 10px; padding: 12px 13px; text-align: left;
-                         background: #e2eaf6; color: #293a54; font-size: 14px; }
-            QPushButton:hover { background: #d1def1; }
-            QPushButton:focus { border: 2px solid #91abd8; }
+            /* Buttons: white fill + clear outline so they never melt into the tinted cards. */
+            QPushButton { border: 1px solid #9db0cf; border-radius: 9px; padding: 9px 16px;
+                         text-align: center; background: #ffffff; color: #243b61;
+                         font-size: 14px; font-weight: 500; }
+            QPushButton:hover { background: #eef3fc; border-color: #5f7fc0; }
+            QPushButton:pressed { background: #dbe5f6; }
+            QPushButton:focus { border: 1px solid #4f68c5; }
+            QPushButton:disabled { background: #eef1f6; color: #8f9bb0; border-color: #d3dbe8; }
+            QPushButton[compact="true"] { padding: 5px 12px; font-size: 13px; border-radius: 7px; }
             QPushButton#previousDayButton, QPushButton#nextDayButton {
                 min-width: 44px; max-width: 44px; min-height: 42px; max-height: 42px;
                 padding: 4px; text-align: center; font-size: 22px; font-weight: 600; }
             QPushButton#navDiary, QPushButton#navCalendar, QPushButton#navFoods, QPushButton#navSettings {
-                background: transparent; color: #d6e0ef; border: 2px solid transparent; }
+                background: transparent; color: #d6e0ef; border: 2px solid transparent;
+                text-align: left; padding: 12px 13px; font-weight: 400; }
             QPushButton#navDiary:hover, QPushButton#navCalendar:hover, QPushButton#navFoods:hover,
             QPushButton#navSettings:hover { background: #344965; color: #ffffff; }
             QPushButton#navDiary:checked, QPushButton#navCalendar:checked, QPushButton#navFoods:checked,
@@ -178,14 +184,30 @@ class MainWindow(QMainWindow):
             QCalendarWidget QAbstractItemView:enabled { color: #243041; selection-background-color: #e3eaf9;
                 selection-color: #243041; }
             QStatusBar { background: #dfe8f5; color: #344154; }
-            QPushButton#primaryButton { background: #4f68c5; color: white; font-weight: 600; }
-            QPushButton#primaryButton:hover { background: #4059b5; }
-            QPushButton#dangerButton { color: #b53d48; }
-            QPushButton#catalogueEditButton, QPushButton#catalogueArchiveButton {
-                min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px;
-                padding: 0; text-align: center; font-size: 19px; font-weight: 700; }
-            QPushButton#catalogueEditButton { color: #4059a5; }
-            QPushButton#catalogueArchiveButton { color: #bd3947; }
+            QPushButton#primaryButton { background: #3f5bbf; color: #ffffff; border: 1px solid #334c9f;
+                                       font-weight: 600; }
+            QPushButton#primaryButton:hover { background: #324ba6; }
+            QPushButton#primaryButton:pressed { background: #2a3f8c; }
+            QPushButton#primaryButton:disabled { background: #b7c2e6; color: #f2f5fc; border-color: #aab6de; }
+            QPushButton#importDiaryCsvButton, QPushButton#importFoodCsvButton {
+                background: #e6edff; color: #2c46a3; border: 1px solid #6f8be0; font-weight: 600; }
+            QPushButton#importDiaryCsvButton:hover, QPushButton#importFoodCsvButton:hover {
+                background: #d5e1ff; border-color: #4f68c5; }
+            QPushButton#undoButton { background: #fff3d0; color: #7a5200; border: 1px solid #e0b64e; }
+            QPushButton#undoButton:hover { background: #ffe9ab; }
+            QPushButton#addFoodButton { background: transparent; color: #34508f;
+                                       border: 1px dashed #7f93b8; text-align: left; }
+            QPushButton#addFoodButton:hover { background: #ffffff; border: 1px solid #5f7fc0; }
+            QPushButton#dangerButton, QPushButton#catalogueArchiveButton {
+                background: #ffffff; color: #b0303d; border: 1px solid #dd9aa1; }
+            QPushButton#dangerButton:hover, QPushButton#catalogueArchiveButton:hover {
+                background: #fdecee; border-color: #c4414f; }
+            QPushButton#catalogueEditButton { color: #2f4a9a; }
+            QWidget#mainContent[dropActive="true"] { background: #e1eaff; border: 2px dashed #4f68c5; }
+            QDialog[dropActive="true"] { background: #dbe6ff; border: 2px dashed #4f68c5; }
+            QLabel#csvDropZone { border: 2px dashed #7f93b8; border-radius: 10px; background: #f1f5fb;
+                                color: #3d56a3; font-weight: 600; padding: 12px; }
+            QCheckBox { color: #243041; spacing: 8px; }
             QWidget#catalogueRow { background: transparent; }
             QWidget#catalogueRow[selected="true"] { background: #dce6fb; border-radius: 7px; }
             QPushButton#recipeRemoveButton { min-height: 30px; padding: 5px 10px; }
@@ -225,6 +247,8 @@ class MainWindow(QMainWindow):
 
     def _select_view(self, page: str) -> None:
         self._stack.setCurrentIndex(self._view_indexes[page])
+        if page == "Calendar" and hasattr(self, "calendar_view"):
+            self.calendar_view.refresh()  # pick up entries added since it was last shown
         for label, button in self._nav_buttons.items():
             button.setChecked(label == page)
 

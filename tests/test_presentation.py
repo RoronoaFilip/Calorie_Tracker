@@ -30,7 +30,13 @@ from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
 from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog, MealAssignmentDialog
+from calorie_tracker.domain.diary import MealPortion
+from calorie_tracker.presentation.control_styles import CLOSE_DIALOG_SHORTCUT, install_close_shortcut
+from calorie_tracker.presentation.csv_drop import csv_paths
+from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
+from calorie_tracker.presentation.dialogs.food_csv_review_dialog import FoodCsvReviewDialog
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
+from calorie_tracker.presentation.dialogs.meal_split_dialog import MealSplitDialog
 from calorie_tracker.presentation.main_window import MainWindow
 from calorie_tracker.presentation.views.diary_view import AddEntryDialog
 import app
@@ -484,8 +490,8 @@ class PresentationTests(unittest.TestCase):
             return FoodDialog.DialogCode.Accepted
 
         with patch(
-            "calorie_tracker.presentation.views.foods_view.QMessageBox.exec",
-            return_value=QMessageBox.StandardButton.Yes,
+            "calorie_tracker.presentation.views.foods_view.FoodCsvReviewDialog.exec",
+            return_value=QDialog.DialogCode.Accepted,
         ), patch(
             "calorie_tracker.presentation.views.foods_view.FoodDialog.exec",
             new=correct,
@@ -509,8 +515,8 @@ class PresentationTests(unittest.TestCase):
             return FoodDialog.DialogCode.Accepted
 
         with patch(
-            "calorie_tracker.presentation.views.foods_view.QMessageBox.exec",
-            return_value=QMessageBox.StandardButton.Yes,
+            "calorie_tracker.presentation.views.foods_view.FoodCsvReviewDialog.exec",
+            return_value=QDialog.DialogCode.Accepted,
         ), patch(
             "calorie_tracker.presentation.views.foods_view.FoodDialog.exec",
             new=correct,
@@ -595,6 +601,206 @@ class PresentationTests(unittest.TestCase):
         self.assertTrue(safety_copy.is_file())
         self.assertTrue(self.services.foods.get("oats").active)
         self.assertEqual(self.window.foods_view.items.count(), 1)
+
+    # ----- new behaviour -------------------------------------------------------------------
+
+    def _write_diary_csv(self, text: str) -> Path:
+        source = Path(self.temp_dir.name) / "day.csv"
+        source.write_text(text, encoding="utf-8")
+        return source
+
+    def test_review_dialog_splits_one_row_between_meals_and_can_be_edited_again(self):
+        source = self._write_diary_csv("food_name,grams eaten,meal\nOats,500,Lunch\n")
+        preview = self.services.diary_importer.preview(source)
+        dialog = DiaryCsvReviewDialog(self.services, "2026-09-30", preview, self.window)
+        row = preview.rows[0]
+
+        split = MealSplitDialog(row.food_name, row.amount_g, dialog.portions[row.source_row], self.window)
+        split.amount_inputs["Lunch"].setValue(200)
+        self.assertFalse(split.apply_button.isEnabled())  # 300 g still unplaced
+        split.findChild(QPushButton, "splitRestDinner").click()
+        self.assertEqual(split.amount_inputs["Dinner"].value(), 300)
+        self.assertTrue(split.apply_button.isEnabled())
+        split.apply_button.click()
+        dialog.portions[row.source_row] = split.portions
+        dialog._refresh_rows()
+
+        self.assertEqual(dialog.table.item(0, 3).text(), "Lunch 200 g · Dinner 300 g")
+        self.assertEqual(dialog.import_button.text(), "Import 2 entries")
+        # editing again: switch the whole amount to Breakfast
+        dialog.portions[row.source_row] = (MealPortion("Breakfast", row.amount_g),)
+        dialog._refresh_rows()
+        self.assertEqual(dialog.table.item(0, 3).text(), "Breakfast")
+        self.assertEqual(dialog.import_button.text(), "Import 1 entry")
+
+        dialog.portions[row.source_row] = (MealPortion("Lunch", Decimal("200")), MealPortion("Dinner", Decimal("300")))
+        dialog._refresh_rows()
+        dialog.import_button.click()
+        entries = self.services.diary.entries_for_day("2026-09-30")
+        self.assertEqual([(e.meal, e.amount_g) for e in entries], [("Lunch", Decimal("200")), ("Dinner", Decimal("300"))])
+
+    def test_meal_assignment_dialog_offers_split_and_keeps_one_click_meals(self):
+        source = self._write_diary_csv("food_name,grams\nOats,500\n")
+        row = self.services.diary_importer.preview(source).rows[0]
+        dialog = MealAssignmentDialog(row, self.window)
+        self.assertIsNotNone(dialog.findChild(QPushButton, "assignSplit"))
+        dialog.findChild(QPushButton, "assignMealLunch").click()
+        self.assertEqual(dialog.portions, (MealPortion("Lunch", Decimal("500")),))
+
+    def test_split_dialog_rejects_amounts_that_do_not_add_up(self):
+        split = MealSplitDialog("Potatoes", Decimal("500"), parent=self.window)
+        split.amount_inputs["Lunch"].setValue(200)
+        split.amount_inputs["Dinner"].setValue(200)
+        self.assertFalse(split.apply_button.isEnabled())
+        self.assertIn("100", split.status_label.text())
+
+    def test_existing_diary_entry_can_be_split_between_meals(self):
+        entry = self.services.diary.add_item("2026-09-30", "Lunch", "oats", Decimal("500"))
+        self.window.diary_view.set_date("2026-09-30")
+
+        def accept_split(dialog):
+            dialog.amount_inputs["Lunch"].setValue(200)
+            dialog.amount_inputs["Dinner"].setValue(300)
+            dialog.apply()
+            return QDialog.DialogCode.Accepted
+
+        with patch("calorie_tracker.presentation.views.diary_view.MealSplitDialog.exec", new=accept_split):
+            self.window.diary_view.split_entry(entry.id)
+
+        entries = self.services.diary.entries_for_day("2026-09-30")
+        self.assertEqual([(e.meal, e.amount_g) for e in entries], [("Lunch", Decimal("200")), ("Dinner", Decimal("300"))])
+
+    def test_review_dialog_colours_problem_rows_and_filters_to_them(self):
+        source = self._write_diary_csv("food_name,grams,meal\nOats,50,Breakfast\nOat,30,Lunch\n")
+        preview = self.services.diary_importer.preview(source)
+        dialog = DiaryCsvReviewDialog(self.services, "2026-09-30", preview, self.window)
+
+        self.assertIn("Did you mean 'Oats'", dialog.table.item(1, 4).text())
+        self.assertNotEqual(dialog.table.item(0, 4).background().color(), dialog.table.item(1, 4).background().color())
+        dialog.only_problems.setChecked(True)
+        self.assertTrue(dialog.table.isRowHidden(0))
+        self.assertFalse(dialog.table.isRowHidden(1))
+        self.assertIn("Amount (g)", dialog.findChild(QLabel, "csvMappingSummary").text())
+
+    def test_food_review_dialog_lists_every_row_with_status(self):
+        source = Path(self.temp_dir.name) / "foods.csv"
+        source.write_text(
+            "name;kcal;protein;fat;carbs;fibre\nBarley;120,5;5;4;20;3\nBroken;abc;5;4;20;3\nBarley;1;1;1;1;1\n",
+            encoding="utf-8",
+        )
+        preview = self.services.importer.preview(source)
+        dialog = FoodCsvReviewDialog(preview, self.window)
+
+        self.assertEqual(dialog.table.rowCount(), 3)
+        self.assertIn("Ready", dialog.table.item(0, 7).text())
+        self.assertIn("Needs correction", dialog.table.item(1, 7).text())
+        self.assertIn("Skipped", dialog.table.item(2, 7).text())
+        self.assertEqual(dialog.import_button.text(), "Import 1 food and correct 1 row")
+        self.assertIn("semicolon", dialog.findChild(QLabel, "csvMappingSummary").text())
+
+    def test_csv_drop_accepts_only_csv_files_and_help_dialog_returns_the_dropped_path(self):
+        from PySide6.QtCore import QMimeData, QUrl
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile("/tmp/day.CSV"), QUrl.fromLocalFile("/tmp/photo.png")])
+        self.assertEqual(csv_paths(mime), ["/tmp/day.CSV"])
+        self.assertTrue(self.window.diary_view.acceptDrops())
+        self.assertTrue(self.window.foods_view.acceptDrops())
+
+        help_dialog = CsvImportHelpDialog("t", "d", "food_name", "Oats", self.window)
+        help_dialog.handle_dropped_csv("/tmp/day.csv")
+        self.assertEqual(help_dialog.dropped_path, "/tmp/day.csv")
+        self.assertEqual(help_dialog.result(), QDialog.DialogCode.Accepted)
+
+    def test_dropped_csv_opens_the_matching_review_without_a_file_picker(self):
+        source = self._write_diary_csv("food_name,grams\nOats,50\n")
+        with patch("calorie_tracker.presentation.views.diary_view.DiaryCsvReviewDialog.exec",
+                   return_value=QDialog.DialogCode.Rejected) as review:
+            self.window.diary_view.handle_dropped_csv(str(source))
+        review.assert_called_once()
+
+    def test_every_popup_dialog_closes_with_ctrl_w_but_main_window_has_no_shortcut(self):
+        dialog = FoodDialog(self.window)
+        dialog.ensurePolished()
+        install_close_shortcut(dialog)
+        shortcuts = [
+            child for child in dialog.children()
+            if child.objectName() == "closeDialogShortcut"
+        ]
+        self.assertEqual(len(shortcuts), 1)
+        self.assertEqual(shortcuts[0].key().toString(), CLOSE_DIALOG_SHORTCUT)
+        dialog.show()
+        shortcuts[0].activated.emit()
+        self.assertFalse(dialog.isVisible())
+        self.assertFalse([c for c in self.window.children() if c.objectName() == "closeDialogShortcut"])
+
+    def test_buttons_never_shrink_below_their_text(self):
+        dialog = MealSplitDialog("Potatoes", Decimal("500"), parent=self.window)
+        dialog.show()
+        self.application.processEvents()
+        for button in dialog.findChildren(QPushButton):
+            if button.text():
+                self.assertGreaterEqual(
+                    button.minimumWidth(), button.fontMetrics().horizontalAdvance(button.text()), button.text()
+                )
+        dialog.close()
+
+    def test_editing_a_diary_entry_focuses_the_grams_field(self):
+        entry = self.services.diary.add_item("2026-09-30", "Lunch", "oats", Decimal("80"))
+        diary = self.window.diary_view
+        self.window.show()
+        diary.set_date("2026-09-30")
+        diary.begin_edit(entry.id)
+        self.application.processEvents()
+        self.assertIn(
+            self.window.focusWidget(), (diary.edit_amount_input, diary.edit_amount_input.lineEdit())
+        )
+        self.assertEqual(diary.edit_amount_input.lineEdit().selectedText().replace(",", "."), "80.0")
+
+    def test_calendar_shows_tick_for_logged_past_days_and_cross_for_missed_ones(self):
+        today = QDate.currentDate()
+        logged_day = today.addDays(-3)
+        self.services.diary.add_item(logged_day.toString("yyyy-MM-dd"), "Lunch", "oats", Decimal("50"))
+        calendar_page = self.window.calendar_view
+        calendar_page.set_month(logged_day.year(), logged_day.month())
+        calendar = calendar_page.calendar
+
+        self.assertEqual(calendar.day_status(logged_day), "logged")
+        for offset in (-2, -1):
+            day = today.addDays(offset)
+            if (day.year(), day.month()) == (logged_day.year(), logged_day.month()):
+                self.assertEqual(calendar.day_status(day), "missed")
+        before = logged_day.addDays(-1)
+        if (before.year(), before.month()) == (logged_day.year(), logged_day.month()):
+            self.assertIsNone(calendar.day_status(before))  # before tracking began
+        self.assertIsNone(calendar.day_status(today))
+
+    def test_calendar_paints_green_tick_and_red_cross(self):
+        calendar = self.window.calendar_view.calendar
+        for status, check in (("logged", lambda c: c.green() > 140 and c.red() < 100), ("missed", lambda c: c.red() > 180 and c.green() < 120)):
+            image = QImage(100, 80, QImage.Format.Format_ARGB32)
+            image.fill(QColor("#f1f5fb"))
+            painter = QPainter(image)
+            calendar._draw_status(painter, QRect(0, 0, 100, 80), status)
+            painter.end()
+            hits = sum(
+                1 for y in range(80) for x in range(100) if check(image.pixelColor(x, y))
+            )
+            self.assertGreater(hits, 0, status)
+
+    def test_settings_offer_fiber_target_data_folder_and_diary_export(self):
+        settings = self.window.settings_view
+        self.assertIn("fiber", settings.target_inputs)
+        self.assertIn(str(Path(self.temp_dir.name)), settings.data_folder_label.text())
+        self.services.diary.add_item("2026-10-01", "Lunch", "oats", Decimal("100"))
+        target = Path(self.temp_dir.name) / "export.csv"
+        self.assertEqual(settings.export_diary(str(target)), 1)
+        self.assertIn("2026-10-01,Lunch,Oats,100", target.read_text(encoding="utf-8-sig"))
+
+    def test_primary_secondary_and_danger_buttons_have_distinct_styles(self):
+        sheet = self.window.styleSheet()
+        for selector in ("QPushButton#primaryButton", "QPushButton#dangerButton", "QPushButton#importDiaryCsvButton",
+                         "QPushButton#addFoodButton", "QPushButton#undoButton"):
+            self.assertIn(selector, sheet)
 
 
 if __name__ == "__main__":

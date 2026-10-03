@@ -1,7 +1,7 @@
 from datetime import date
 
-from PySide6.QtCore import QDate, QEvent, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QTextCharFormat
+from PySide6.QtCore import QDate, QEvent, QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QPen, QTextCharFormat
 from PySide6.QtWidgets import (
     QCalendarWidget,
     QHBoxLayout,
@@ -23,6 +23,8 @@ class DiaryCalendarWidget(QCalendarWidget):
         self._day_grid = self.findChild(QTableView)
         self._hovered_date: QDate | None = None
         self._hover_base_format: QTextCharFormat | None = None
+        self._logged: frozenset[str] = frozenset()
+        self._tracking_start: str | None = None
         if self._day_grid is not None:
             self._day_grid.setMouseTracking(True)
             self._day_grid.viewport().setMouseTracking(True)
@@ -63,8 +65,52 @@ class DiaryCalendarWidget(QCalendarWidget):
             hover_format.setBackground(QColor("#cbd9ee"))
             self.setDateTextFormat(value, hover_format)
 
+    def set_history(self, logged: frozenset[str], tracking_start: str | None) -> None:
+        """Past days with entries get a green tick; past days since tracking began without any get a red cross."""
+        self._logged = logged
+        self._tracking_start = tracking_start
+        self.updateCells()
+
+    def day_status(self, day: QDate) -> str | None:
+        """'logged', 'missed', or None (today, future, before tracking began, other months)."""
+        if day.month() != self.monthShown() or day.year() != self.yearShown():
+            return None
+        if day >= QDate.currentDate():
+            return None
+        iso = day.toString("yyyy-MM-dd")
+        if iso in self._logged:
+            return "logged"
+        if self._tracking_start is not None and iso >= self._tracking_start:
+            return "missed"
+        return None
+
+    def _draw_status(self, painter: QPainter, rect, status: str) -> None:
+        size = 14
+        left, top = rect.right() - size - 7, rect.top() + 6
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if status == "logged":
+            pen = QPen(QColor("#1f9d55"), 2.4)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.drawPolyline([
+                QPointF(left, top + size * 0.55), QPointF(left + size * 0.38, top + size * 0.9),
+                QPointF(left + size, top + size * 0.1),
+            ])
+        else:
+            pen = QPen(QColor("#d64545"), 2.4)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(left + 1, top + 1), QPointF(left + size - 1, top + size - 1))
+            painter.drawLine(QPointF(left + size - 1, top + 1), QPointF(left + 1, top + size - 1))
+        painter.restore()
+
     def paintCell(self, painter: QPainter, rect, day: QDate) -> None:
         super().paintCell(painter, rect, day)
+        status = self.day_status(day)
+        if status is not None:
+            self._draw_status(painter, rect, status)
         if day != QDate.currentDate():
             return
         painter.save()
@@ -88,10 +134,18 @@ class CalendarView(QWidget):
         heading = QLabel("Calendar history")
         heading.setStyleSheet("font-size: 26px; font-weight: 650; color: #172538;")
         layout.addWidget(heading)
-        description = QLabel("Days with saved diary entries are highlighted. Choose a date to open that day.")
+        description = QLabel("Choose a date to open that day.")
         description.setStyleSheet("color: #738094;")
         layout.addWidget(description)
         controls = QHBoxLayout()
+        self.legend_label = QLabel(
+            "<span style='color:#1f9d55; font-weight:700'>✓</span> logged &nbsp;&nbsp; "
+            "<span style='color:#d64545; font-weight:700'>✕</span> missed &nbsp;&nbsp; "
+            "<span style='color:#d64545'>●</span> today"
+        )
+        self.legend_label.setObjectName("calendarLegend")
+        self.legend_label.setAccessibleName("Calendar legend: tick means logged, cross means missed, dot means today")
+        controls.addWidget(self.legend_label)
         controls.addStretch(1)
         today = QPushButton("Today")
         today.setToolTip("Return to the current month")
@@ -105,7 +159,7 @@ class CalendarView(QWidget):
         self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
         self.calendar.setAccessibleName("Diary history calendar")
         self.calendar.setAccessibleDescription(
-            "Today has a red dot. Underlined blue dates contain diary entries."
+            "Today has a red dot. A green tick marks past days with diary entries; a red cross marks past days with none since tracking began."
         )
         self.calendar.clicked.connect(self._date_clicked)
         self.calendar.currentPageChanged.connect(lambda _year, _month: self.refresh())
@@ -127,6 +181,7 @@ class CalendarView(QWidget):
         start = QDate(year, month, 1).toString("yyyy-MM-dd")
         end = QDate(year, month, QDate(year, month, 1).daysInMonth()).toString("yyyy-MM-dd")
         self.populated_dates = self.services.diary.populated_dates(start, end)
+        self.calendar.set_history(self.populated_dates, self.services.diary.first_logged_date())
         self.calendar.setDateTextFormat(QDate(), QTextCharFormat())
         marker = QTextCharFormat()
         marker.setForeground(QColor("#4f68c5"))

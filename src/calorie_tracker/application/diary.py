@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 import uuid
 
-from calorie_tracker.domain.diary import DayTotals, DiaryEntry, MEALS
+from calorie_tracker.domain.diary import DayTotals, DiaryEntry, MEALS, MealPortion, normalize_portions
 from calorie_tracker.domain.nutrition import Nutrients, ZERO
 from calorie_tracker.infrastructure.repositories import DiaryRepository, FoodRepository, RecipeRepository
 
@@ -105,6 +105,21 @@ class DiaryService:
         self.diary.update_amount(updated)
         return updated
 
+    def split_entry(
+        self, entry_id: str, portions: tuple[MealPortion, ...] | list[MealPortion]
+    ) -> tuple[DiaryEntry, ...]:
+        """Replace one entry with one entry per meal; the portions must add up to its amount."""
+        entry = self.diary.get(entry_id)
+        if entry is None:
+            raise KeyError(f"Diary entry not found: {entry_id}")
+        checked = normalize_portions(entry.amount_g, ((p.meal, p.amount_g) for p in portions))
+        replacements = tuple(
+            replace(entry, id=str(uuid.uuid4()), meal=portion.meal, amount_g=portion.amount_g)
+            for portion in checked
+        )
+        self.diary.replace(entry_id, replacements)
+        return replacements
+
     def repeat_entry(self, entry_id: str) -> DiaryEntry:
         entry = self.diary.get(entry_id)
         if entry is None:
@@ -131,3 +146,9 @@ class DiaryService:
         if end_date < start_date:
             raise ValueError("End date cannot be before start date.")
         return self.diary.populated_dates(start_date, end_date)
+
+    def first_logged_date(self) -> str | None:
+        return self.diary.first_date()
+
+    def all_entries(self) -> tuple[DiaryEntry, ...]:
+        return self.diary.all_entries()

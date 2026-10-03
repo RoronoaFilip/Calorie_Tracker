@@ -3,6 +3,7 @@ from logging.handlers import RotatingFileHandler
 import logging
 from pathlib import Path
 
+from . import paths
 from .application.catalogue import CatalogueService
 from .application.diary import DiaryService
 from .infrastructure.database import Database
@@ -87,4 +88,4 @@ def build_services(
 
 
 def default_database_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "data" / "calorie_tracker.sqlite3"
+    return paths.default_database_path()

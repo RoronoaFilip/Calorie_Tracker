@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
@@ -12,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from calorie_tracker.bootstrap import ApplicationServices
+from calorie_tracker.infrastructure.diary_csv_exporter import export_diary_csv
 
 
 class SettingsView(QWidget):
@@ -20,6 +25,7 @@ class SettingsView(QWidget):
         ("protein", "Protein", "g"),
         ("carbohydrates", "Carbohydrates", "g"),
         ("fat", "Fat", "g"),
+        ("fiber", "Fiber", "g"),
     )
 
     def __init__(self, services: ApplicationServices, notify):
@@ -33,7 +39,7 @@ class SettingsView(QWidget):
         heading = QLabel("Settings")
         heading.setStyleSheet("font-size: 26px; font-weight: 650; color: #172538;")
         layout.addWidget(heading)
-        description = QLabel("Set optional daily targets. Leave a value at zero to hide its progress indicator.")
+        description = QLabel("Daily targets drive the progress bars on your Diary. Leave a value at \"Not set\" to hide its bar.")
         description.setStyleSheet("color: #738094;")
         layout.addWidget(description)
         card = QFrame()
@@ -76,7 +82,48 @@ class SettingsView(QWidget):
         actions.addStretch(1)
         backup_layout.addLayout(actions)
         layout.addWidget(backup_card)
+        data_card = QFrame()
+        data_card.setObjectName("card")
+        data_layout = QVBoxLayout(data_card)
+        data_layout.addWidget(QLabel("Your data"))
+        self.data_folder = Path(self.services.database.path).parent
+        self.data_folder_label = QLabel(f"Everything is stored on this computer in:\n{self.data_folder}")
+        self.data_folder_label.setObjectName("dataFolderLabel")
+        self.data_folder_label.setWordWrap(True)
+        self.data_folder_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        data_layout.addWidget(self.data_folder_label)
+        data_actions = QHBoxLayout()
+        open_folder = QPushButton("Open data folder")
+        open_folder.setObjectName("openDataFolderButton")
+        open_folder.clicked.connect(self._open_data_folder)
+        export_csv = QPushButton("Export diary to CSV")
+        export_csv.setObjectName("exportDiaryCsvButton")
+        export_csv.setToolTip("Save every diary entry with its nutrition to a spreadsheet-friendly CSV")
+        export_csv.clicked.connect(self._choose_diary_export)
+        data_actions.addWidget(open_folder)
+        data_actions.addWidget(export_csv)
+        data_actions.addStretch(1)
+        data_layout.addLayout(data_actions)
+        layout.addWidget(data_card)
         layout.addStretch(1)
+
+    def _open_data_folder(self) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.data_folder)))
+
+    def _choose_diary_export(self) -> None:
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export diary to CSV", "diary-export.csv", "CSV files (*.csv)"
+        )
+        if filename:
+            try:
+                self.export_diary(filename)
+            except OSError as error:
+                QMessageBox.critical(self, "Export failed", str(error))
+
+    def export_diary(self, filename: str) -> int:
+        count = export_diary_csv(self.services.diary.all_entries(), filename)
+        self.notify(f"Exported {count} diary entr{'y' if count == 1 else 'ies'} to {filename}.")
+        return count
 
     def set_target(self, key: str, value: float) -> None:
         self.target_inputs[key].setValue(value)

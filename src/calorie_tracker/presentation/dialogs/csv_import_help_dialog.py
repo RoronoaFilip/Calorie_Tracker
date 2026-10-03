@@ -1,3 +1,4 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -6,9 +7,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from calorie_tracker.presentation.csv_drop import CsvDropMixin
 
-class CsvImportHelpDialog(QDialog):
-    """Shows a valid CSV schema and example before the user selects a file."""
+
+class CsvImportHelpDialog(CsvDropMixin, QDialog):
+    """Shows a valid CSV schema and example; a CSV can also be dropped straight onto it."""
 
     def __init__(
         self,
@@ -19,8 +22,10 @@ class CsvImportHelpDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
+        self.dropped_path: str | None = None
+        self.init_csv_drop()
         self.setWindowTitle(title)
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(540)
         layout = QVBoxLayout(self)
         intro = QLabel(description)
         intro.setWordWrap(True)
@@ -44,6 +49,12 @@ class CsvImportHelpDialog(QDialog):
         example_label.setWordWrap(True)
         layout.addWidget(example_label)
 
+        self.drop_zone = QLabel("⤓  Drag and drop a .csv file here to import it right away")
+        self.drop_zone.setObjectName("csvDropZone")
+        self.drop_zone.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_zone.setMinimumHeight(64)
+        layout.addWidget(self.drop_zone)
+
         actions = QHBoxLayout()
         actions.addStretch(1)
         cancel = QPushButton("Cancel")
@@ -55,3 +66,7 @@ class CsvImportHelpDialog(QDialog):
         actions.addWidget(cancel)
         actions.addWidget(self.choose_button)
         layout.addLayout(actions)
+
+    def handle_dropped_csv(self, path: str) -> None:
+        self.dropped_path = path
+        self.accept()
