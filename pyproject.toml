@@ -17,6 +17,13 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.coverage.run]
+relative_files = true
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+
 [dependency-groups]
 test = [
     "pytest",
