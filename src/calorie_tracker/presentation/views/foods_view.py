@@ -26,6 +26,8 @@ from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
 
 
 class FoodsView(CsvDropMixin, QWidget):
+    edit_archive_buttons_font = "font-size: 26px;"
+
     def __init__(self, services: ApplicationServices, notify):
         super().__init__()
         self.init_csv_drop()
@@ -107,19 +109,21 @@ class FoodsView(CsvDropMixin, QWidget):
         text_layout = QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)
         name_label = QLabel(name)
-        name_label.setStyleSheet("font-weight: 600;")
+        name_label.setStyleSheet("font-weight: 600; font-size: 16px;")
         detail_label = QLabel(detail)
-        detail_label.setStyleSheet("font-size: 12px; color: #536175;")
+        detail_label.setStyleSheet("font-size: 16px; color: #536175;")
         text_layout.addWidget(name_label)
         text_layout.addWidget(detail_label)
         layout.addLayout(text_layout, 1)
 
         edit = QPushButton("✎")
+        edit.setStyleSheet(self.edit_archive_buttons_font)
         edit.setObjectName("catalogueEditButton")
         edit.setAccessibleName(f"Edit {name}")
         edit.setToolTip("Edit")
         edit.clicked.connect(lambda checked=False: self._edit_selected())
         archive = QPushButton("×")
+        archive.setStyleSheet(self.edit_archive_buttons_font)
         archive.setObjectName("catalogueArchiveButton")
         archive.setAccessibleName(f"Archive {name}")
         archive.setToolTip("Archive")
