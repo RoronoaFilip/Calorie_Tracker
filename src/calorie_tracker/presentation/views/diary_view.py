@@ -2,17 +2,14 @@ from datetime import date
 from decimal import Decimal
 
 from PySide6.QtCore import QDate, QTimer, Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
-    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -24,93 +21,19 @@ from PySide6.QtWidgets import (
 from calorie_tracker.application.diary import MEALS
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.domain.diary import DiaryEntry
-from calorie_tracker.domain.nutrition import Nutrients
+from calorie_tracker.domain.diary import MealPortion
+from calorie_tracker.domain.nutrition import BASIS_GRAMS
+from calorie_tracker.infrastructure.csv_reading import CsvTable
+from calorie_tracker.presentation.amount_input import AmountSpinBox
 from calorie_tracker.presentation.control_styles import fit_button_text, style_calendar_arrows, style_chevron_button
-from calorie_tracker.infrastructure.diary_csv_importer import DiaryCsvFormatError
+from calorie_tracker.presentation.csv_drop import CsvDropMixin
+from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
+from calorie_tracker.presentation.dialogs.add_entry_dialog import AddEntryDialog  # noqa: F401  (re-exported)
 from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog
 from calorie_tracker.presentation.dialogs.meal_split_dialog import MealSplitDialog
-from calorie_tracker.domain.diary import MealPortion
-from calorie_tracker.presentation.csv_drop import CsvDropMixin
-from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
-
-
-def _amount(value: Decimal) -> str:
-    return f"{value.normalize():f}"
-
-
-class AddEntryDialog(QDialog):
-    def __init__(self, services: ApplicationServices, meal: str, parent=None):
-        super().__init__(parent)
-        self.services = services
-        self.setWindowTitle(f"Add to {meal}")
-        self.setMinimumWidth(420)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"Add food or recipe to {meal}"))
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search foods and recipes")
-        self.search_input.setAccessibleName("Search catalogue for diary entry")
-        layout.addWidget(self.search_input)
-        layout.addWidget(QLabel("Recently used"))
-        self.recent_results = QListWidget()
-        self.recent_results.setAccessibleName("Recently used foods and recipes")
-        self.recent_results.setMaximumHeight(118)
-        layout.addWidget(self.recent_results)
-        layout.addWidget(QLabel("Matching foods and recipes"))
-        self.results = QListWidget()
-        self.results.setAccessibleName("Matching foods and recipes")
-        layout.addWidget(self.results)
-        amount_row = QHBoxLayout()
-        amount_row.addWidget(QLabel("Amount (g)"))
-        self.amount_input = QDoubleSpinBox()
-        self.amount_input.setRange(0.1, 100000)
-        self.amount_input.setDecimals(1)
-        self.amount_input.setValue(100)
-        self.amount_input.setAccessibleName("Diary entry amount in grams")
-        amount_row.addWidget(self.amount_input)
-        layout.addLayout(amount_row)
-        actions = QHBoxLayout()
-        actions.addStretch(1)
-        cancel = QPushButton("Cancel")
-        cancel.clicked.connect(self.reject)
-        self.add_button = QPushButton("Add")
-        self.add_button.setObjectName("primaryButton")
-        self.add_button.clicked.connect(self.accept)
-        actions.addWidget(cancel)
-        actions.addWidget(self.add_button)
-        layout.addLayout(actions)
-        self.search_input.textChanged.connect(self.refresh)
-        self.recent_results.itemSelectionChanged.connect(self._update_add_enabled)
-        self.results.itemSelectionChanged.connect(self._update_add_enabled)
-        self.results.itemDoubleClicked.connect(lambda _: self.accept())
-        self.recent_results.itemDoubleClicked.connect(lambda _: self.accept())
-        self.refresh()
-
-    def refresh(self) -> None:
-        query = self.search_input.text().strip().casefold()
-        self.recent_results.clear()
-        for item_id, name, kind in self.services.diary_repository.recent_items():
-            item = QListWidgetItem(f"{name}  ·  {'Food' if kind == 'food' else 'Recipe'}")
-            item.setData(Qt.ItemDataRole.UserRole, item_id)
-            self.recent_results.addItem(item)
-        self.results.clear()
-        rows = [(food.name, "food", food.id) for food in self.services.foods.search(query)]
-        rows.extend((item.draft.name, "recipe", item.id) for item in self.services.recipes.search(query))
-        for name, kind, item_id in sorted(rows, key=lambda row: row[0].casefold()):
-            entry = QListWidgetItem(f"{name}  ·  {'Food' if kind == 'food' else 'Recipe'}")
-            entry.setData(Qt.ItemDataRole.UserRole, item_id)
-            self.results.addItem(entry)
-        if self.results.count():
-            self.results.setCurrentRow(0)
-        self._update_add_enabled()
-
-    def _update_add_enabled(self) -> None:
-        self.add_button.setEnabled(self.selected_item_id is not None)
-
-    @property
-    def selected_item_id(self) -> str | None:
-        item = self.recent_results.currentItem() or self.results.currentItem()
-        return item.data(Qt.ItemDataRole.UserRole) if item else None
+from calorie_tracker.presentation.dialogs.quick_add_dialog import QuickAddDialog
+from calorie_tracker.presentation.formatting import format_entry_amount
 
 
 class DiaryView(CsvDropMixin, QWidget):
@@ -164,6 +87,14 @@ class DiaryView(CsvDropMixin, QWidget):
         self.import_csv_button.setToolTip("Import foods and amounts for this selected day")
         self.import_csv_button.clicked.connect(self.choose_diary_csv)
         header.addWidget(self.import_csv_button)
+        self.quick_add_button = QPushButton("Quick add")
+        self.quick_add_button.setObjectName("quickAddButton")
+        self.quick_add_button.setAccessibleName("Quick add several entries")
+        self.quick_add_button.setToolTip(
+            "Add several foods to several meals at once, one per line (Ctrl+Shift+A)"
+        )
+        self.quick_add_button.clicked.connect(self.open_quick_add)
+        header.addWidget(self.quick_add_button)
         self.undo_button = QPushButton("Undo delete")
         self.undo_button.setObjectName("undoButton")
         self.undo_button.setToolTip("Restore the diary entry you just deleted")
@@ -260,7 +191,7 @@ class DiaryView(CsvDropMixin, QWidget):
             add = QPushButton(f"+ Add food to {meal}")
             add.setObjectName("addFoodButton")
             add.setAccessibleName(f"Add food to {meal}")
-            add.setStyleSheet("font-size: 14px;")
+            add.setStyleSheet("font-size: 16px;")
             add.setToolTip(f"Search foods and recipes for {meal}")
             add.clicked.connect(lambda checked=False, category=meal: self.open_add_dialog(category))
             panel_layout.addWidget(add, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -270,7 +201,31 @@ class DiaryView(CsvDropMixin, QWidget):
         self.meal_layout.addStretch(1)
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
+        self._install_shortcuts()
         self.refresh()
+
+    def _install_shortcuts(self) -> None:
+        """Keyboard navigation for the diary (active while the Diary page is showing)."""
+        bindings = [
+            ("Alt+Left", lambda: self.shift_date(-1)),
+            ("Alt+Right", lambda: self.shift_date(1)),
+            ("Ctrl+T", lambda: self.set_date(date.today().isoformat())),
+            ("Ctrl+Shift+A", self.open_quick_add),
+        ]
+        bindings += [
+            (f"Alt+{number}", lambda checked=False, category=meal: self.open_add_dialog(category))
+            for number, meal in enumerate(MEALS, start=1)
+        ]
+        self._shortcuts = []
+        for keys, action in bindings:
+            shortcut = QShortcut(QKeySequence(keys), self)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(action)
+            self._shortcuts.append(shortcut)
+        meals = ", ".join(f"Alt+{number} {meal}" for number, meal in enumerate(MEALS, start=1))
+        self.date_picker.setToolTip(
+            f"Choose the diary date. Alt+←/→ change day, Ctrl+T goes to today. Add food: {meals}"
+        )
 
     def _date_changed(self, value: QDate) -> None:
         self.selected_date = value.toString("yyyy-MM-dd")
@@ -292,6 +247,14 @@ class DiaryView(CsvDropMixin, QWidget):
         dialog = AddEntryDialog(self.services, meal, self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_item_id:
             self.add_catalogue_item(meal, dialog.selected_item_id, Decimal(str(dialog.amount_input.value())))
+
+    def open_quick_add(self) -> None:
+        """Type several entries, fix what was not understood on the review screen, then save them all."""
+        dialog = QuickAddDialog(self.selected_date, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        table = CsvTable(dialog.rows(), ",", "utf-8")
+        self._review_table(table, quick=True)
 
     def add_catalogue_item(self, meal: str, item_id: str, amount_g: Decimal) -> DiaryEntry:
         entry = self.services.diary.add_item(self.selected_date, meal, item_id, amount_g)
@@ -327,13 +290,17 @@ class DiaryView(CsvDropMixin, QWidget):
         except (OSError, ValueError) as error:
             QMessageBox.critical(self, "CSV validation failed", str(error))
             return
+        self._review_table(table)
+
+    def _review_table(self, table: CsvTable, quick: bool = False) -> None:
         preview = preview_with_repair(
-            self, table, self.services.diary_importer, error_title="Fix the diary CSV",
-            intro="Each row needs a food name and an amount in grams; the meal is optional.",
+            self, table, self.services.diary_importer,
+            error_title="Fix the quick add lines" if quick else "Fix the diary CSV",
+            intro="Each row needs a food name and an amount; the meal is optional.",
         )
         if preview is None:
             return
-        dialog = DiaryCsvReviewDialog(self.services, self.selected_date, preview, self)
+        dialog = DiaryCsvReviewDialog(self.services, self.selected_date, preview, self, quick=quick)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.refresh()
@@ -342,7 +309,7 @@ class DiaryView(CsvDropMixin, QWidget):
         if calendar_view is not None:
             calendar_view.refresh()
         count = len(dialog.imported_entries)
-        self.notify(f"Imported {count} diary entr{'y' if count == 1 else 'ies'} for {self.selected_date}.")
+        self.notify(f"Added {count} diary entr{'y' if count == 1 else 'ies'} for {self.selected_date}.")
 
     def _clear_layout(self, layout: QVBoxLayout) -> None:
         while layout.count():
@@ -366,7 +333,7 @@ class DiaryView(CsvDropMixin, QWidget):
             self.findChild(QLabel, f"subtotal{meal}").setText(meal_total_text)
             if not meal_entries:
                 hint = QLabel("Nothing logged yet. Add a food or recipe to get started.")
-                hint.setStyleSheet("color: #8994a3; padding: 7px 0; font-size: 14px;")
+                hint.setStyleSheet("color: #8994a3; padding: 7px 0; font-size: 16px;")
                 self.meal_entries[meal].addWidget(hint)
             for entry in meal_entries:
                 self.meal_entries[meal].addWidget(self._entry_row(entry))
@@ -395,7 +362,8 @@ class DiaryView(CsvDropMixin, QWidget):
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 4, 0, 4)
-        label = QLabel(f"{entry.display_name}  ·  {_amount(entry.amount_g)}g")
+        label = QLabel(f"{entry.display_name}  ·  {format_entry_amount(entry)}")
+        label.setWordWrap(True)
         nutrients = entry.nutrients
         details = QLabel(
             f"{nutrients.calories:.2f} kcal · "
@@ -404,6 +372,7 @@ class DiaryView(CsvDropMixin, QWidget):
             f"Fat {nutrients.fat:.2f}g · "
             f"Fiber {nutrients.fiber:.2f}g"
         )
+        details.setWordWrap(True)
         details.setStyleSheet("font-size: 16px; color: #536d95;")
         label.setStyleSheet("font-size: 16px; color: #172538;")
         layout.addWidget(label, 2)
@@ -440,12 +409,11 @@ class DiaryView(CsvDropMixin, QWidget):
         edit_amount_widget = QLabel(f"Edit amount for {entry.display_name}")
         edit_amount_widget.setStyleSheet(self._sixteen_pixel_font)
         layout.addWidget(edit_amount_widget)
-        self.edit_amount_input = QDoubleSpinBox()
+        self.edit_amount_input = AmountSpinBox(entry.basis, float(entry.amount_g))
         self.edit_amount_input.setObjectName("editDiaryAmount")
-        self.edit_amount_input.setAccessibleName("Edit diary amount in grams")
-        self.edit_amount_input.setRange(0.1, 100000)
-        self.edit_amount_input.setDecimals(1)
-        self.edit_amount_input.setValue(float(entry.amount_g))
+        self.edit_amount_input.setAccessibleName(
+            "Edit number of items" if entry.basis != BASIS_GRAMS else "Edit diary amount in grams"
+        )
         self.edit_amount_input.setStyleSheet(self._sixteen_pixel_font)
         layout.addWidget(self.edit_amount_input)
         self._editing_entry_id = entry_id
@@ -481,7 +449,7 @@ class DiaryView(CsvDropMixin, QWidget):
         if entry is None:
             return
         dialog = MealSplitDialog(
-            entry.display_name, entry.amount_g, (MealPortion(entry.meal, entry.amount_g),), self
+            entry.display_name, entry.amount_g, (MealPortion(entry.meal, entry.amount_g),), self, entry.unit
         )
         if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.portions:
             return

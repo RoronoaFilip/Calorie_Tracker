@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -114,6 +114,15 @@ class FoodCsvReviewDialog(QDialog):
         actions.addWidget(cancel)
         actions.addWidget(self.import_button)
         layout.addLayout(actions)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Rows are measured before the table has its real width, which leaves them tall; measure again now.
+        QTimer.singleShot(0, self.table.resizeRowsToContents)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.table.resizeRowsToContents()
 
     def _apply_filter(self, checked: bool) -> None:
         for index, review in enumerate(self.preview.rows):

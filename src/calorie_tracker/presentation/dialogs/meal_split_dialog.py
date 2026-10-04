@@ -18,11 +18,11 @@ def _grams(value: Decimal) -> str:
     return f"{value.normalize():f}"
 
 
-def describe_portions(portions: tuple[MealPortion, ...]) -> str:
-    """'Lunch' for a single meal, otherwise 'Lunch 200 g · Dinner 300 g'."""
+def describe_portions(portions: tuple[MealPortion, ...], unit: str = "g") -> str:
+    """'Lunch' for a single meal, otherwise 'Lunch 200 g · Dinner 300 g' (unit "pcs" for counted foods)."""
     if len(portions) == 1:
         return portions[0].meal
-    return " · ".join(f"{p.meal} {_grams(p.amount_g)} g" for p in portions)
+    return " · ".join(f"{p.meal} {_grams(p.amount_g)} {unit}" for p in portions)
 
 
 class MealSplitDialog(QDialog):
@@ -34,18 +34,23 @@ class MealSplitDialog(QDialog):
         total_g: Decimal,
         current: tuple[MealPortion, ...] = (),
         parent: QWidget | None = None,
+        unit: str = "g",
     ):
         super().__init__(parent)
         self.total_g = total_g
+        self.unit = unit
         self.portions: tuple[MealPortion, ...] = ()
         self.setWindowTitle("Split between meals")
         self.setMinimumWidth(430)
         layout = QVBoxLayout(self)
-        title = QLabel(f"{food_name} · {_grams(total_g)} g in total")
-        title.setStyleSheet("font-weight: 650; font-size: 15px;")
+        title = QLabel(f"{food_name} · {_grams(total_g)} {unit} in total")
+        title.setStyleSheet("font-weight: 650; font-size: 17px;")
         title.setWordWrap(True)
         layout.addWidget(title)
-        hint = QLabel("Type how many grams go to each meal, or use Rest to put what is left in a meal.")
+        hint = QLabel(
+            f"Type how many {'items' if unit == 'pcs' else 'grams'} go to each meal, "
+            "or use Rest to put what is left in a meal."
+        )
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
@@ -57,17 +62,17 @@ class MealSplitDialog(QDialog):
             grid.addWidget(QLabel(meal), row, 0)
             spin = QDoubleSpinBox()
             spin.setObjectName(f"splitAmount{meal}")
-            spin.setAccessibleName(f"Grams for {meal}")
+            spin.setAccessibleName(f"{'Items' if unit == 'pcs' else 'Grams'} for {meal}")
             spin.setDecimals(2)
             spin.setRange(0, float(total_g))
-            spin.setSuffix(" g")
+            spin.setSuffix(f" {unit}")
             spin.setValue(float(start.get(meal, Decimal(0))))
             spin.valueChanged.connect(self._refresh)
             self.amount_inputs[meal] = spin
             grid.addWidget(spin, row, 1)
             rest = QPushButton("Rest")
             rest.setObjectName(f"splitRest{meal}")
-            rest.setAccessibleName(f"Put the remaining grams in {meal}")
+            rest.setAccessibleName(f"Put the remaining amount in {meal}")
             rest.setToolTip(f"Put whatever is not yet assigned in {meal}")
             rest.clicked.connect(lambda checked=False, name=meal: self.fill_rest(name))
             grid.addWidget(rest, row, 2)
@@ -109,23 +114,24 @@ class MealSplitDialog(QDialog):
         assigned = sum(value for _, value in self._values())
         remaining = self.total_g - assigned
         if abs(remaining) <= Decimal("0.005") and assigned > 0:
-            self.status_label.setText(f"✓ All {_grams(self.total_g)} g are assigned.")
+            self.status_label.setText(f"✓ All {_grams(self.total_g)} {self.unit} are assigned.")
             self.status_label.setStyleSheet("color: #1f7a4d; font-weight: 600;")
             self.apply_button.setEnabled(True)
         elif remaining > 0:
             self.status_label.setText(
-                f"{_grams(assigned)} g assigned · {_grams(remaining.quantize(Decimal('0.01')))} g still to place."
+                f"{_grams(assigned)} {self.unit} assigned · "
+                f"{_grams(remaining.quantize(Decimal('0.01')))} {self.unit} still to place."
             )
             self.status_label.setStyleSheet("color: #9a6700; font-weight: 600;")
             self.apply_button.setEnabled(False)
         else:
-            self.status_label.setText(f"✕ Over by {_grams((-remaining).quantize(Decimal('0.01')))} g.")
+            self.status_label.setText(f"✕ Over by {_grams((-remaining).quantize(Decimal('0.01')))} {self.unit}.")
             self.status_label.setStyleSheet("color: #b53d48; font-weight: 600;")
             self.apply_button.setEnabled(False)
 
     def apply(self) -> None:
         try:
-            self.portions = normalize_portions(self.total_g, self._values())
+            self.portions = normalize_portions(self.total_g, self._values(), self.unit)
         except ValueError as error:
             self.status_label.setText(str(error))
             return

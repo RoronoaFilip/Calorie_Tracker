@@ -4,7 +4,7 @@ from decimal import Decimal
 import uuid
 
 from calorie_tracker.domain.diary import DayTotals, DiaryEntry, MEALS, MealPortion, normalize_portions
-from calorie_tracker.domain.nutrition import Nutrients, ZERO
+from calorie_tracker.domain.nutrition import BASIS_GRAMS, Nutrients, ZERO, unit_label
 from calorie_tracker.infrastructure.repositories import DiaryRepository, FoodRepository, RecipeRepository
 
 
@@ -31,28 +31,33 @@ class DiaryService:
             raise ValueError("Choose a valid diary date in YYYY-MM-DD format.")
 
     @staticmethod
-    def _validate_amount(amount_g: Decimal) -> None:
-        if not amount_g.is_finite() or amount_g <= ZERO:
-            raise ValueError("Amount must be a finite number greater than 0 g.")
+    def _validate_amount(amount: Decimal, basis: str = BASIS_GRAMS) -> None:
+        if not amount.is_finite() or amount <= ZERO:
+            raise ValueError(f"Amount must be a finite number greater than 0 {unit_label(basis)}.")
 
-    def add_item(self, diary_date: str, meal: str, catalogue_item_id: str, amount_g: Decimal) -> DiaryEntry:
-        self._validate_date(diary_date)
-        if meal not in MEALS:
-            raise ValueError(f"Meal must be one of: {', '.join(MEALS)}.")
-        self._validate_amount(amount_g)
+    def _resolve(self, catalogue_item_id: str) -> tuple[str, Nutrients, str]:
+        """Name, nutrient snapshot values and basis ("g" or "count") of an active food or recipe."""
         food = self.foods.get(catalogue_item_id)
         if food is not None:
             if not food.active:
                 raise ValueError("Archived foods cannot be added to the diary.")
-            name, nutrients = food.name, food.nutrients_per_100g
-        else:
-            recipe = self.recipes.get(catalogue_item_id)
-            if recipe is None or not recipe.active:
-                raise ValueError("Choose an active food or recipe from the catalogue.")
-            name, nutrients = recipe.draft.name, recipe.per_100g
-        entry = DiaryEntry(
-            str(uuid.uuid4()), diary_date, meal, catalogue_item_id, name, amount_g, nutrients
-        )
+            return food.name, food.nutrients_per_100g, food.basis
+        recipe = self.recipes.get(catalogue_item_id)
+        if recipe is None or not recipe.active:
+            raise ValueError("Choose an active food or recipe from the catalogue.")
+        return recipe.draft.name, recipe.per_100g, BASIS_GRAMS
+
+    def _build_entry(self, diary_date: str, meal: str, catalogue_item_id: str, amount: Decimal) -> DiaryEntry:
+        if meal not in MEALS:
+            raise ValueError(f"Meal must be one of: {', '.join(MEALS)}.")
+        name, nutrients, basis = self._resolve(catalogue_item_id)
+        self._validate_amount(amount, basis)
+        return DiaryEntry(str(uuid.uuid4()), diary_date, meal, catalogue_item_id, name, amount, nutrients, basis)
+
+    def add_item(self, diary_date: str, meal: str, catalogue_item_id: str, amount_g: Decimal) -> DiaryEntry:
+        """Log a food or recipe. ``amount_g`` is grams, or the number of items for a counted food."""
+        self._validate_date(diary_date)
+        entry = self._build_entry(diary_date, meal, catalogue_item_id, amount_g)
         self.diary.add(entry)
         return entry
 
@@ -60,26 +65,9 @@ class DiaryService:
         self, diary_date: str, items: tuple[DiaryEntryInput, ...]
     ) -> tuple[DiaryEntry, ...]:
         self._validate_date(diary_date)
-        entries: list[DiaryEntry] = []
-        for item in items:
-            if item.meal not in MEALS:
-                raise ValueError(f"Meal must be one of: {', '.join(MEALS)}.")
-            self._validate_amount(item.amount_g)
-            food = self.foods.get(item.catalogue_item_id)
-            if food is not None:
-                if not food.active:
-                    raise ValueError("Archived foods cannot be added to the diary.")
-                name, nutrients = food.name, food.nutrients_per_100g
-            else:
-                recipe = self.recipes.get(item.catalogue_item_id)
-                if recipe is None or not recipe.active:
-                    raise ValueError("Choose an active food or recipe from the catalogue.")
-                name, nutrients = recipe.draft.name, recipe.per_100g
-            entries.append(DiaryEntry(
-                str(uuid.uuid4()), diary_date, item.meal, item.catalogue_item_id,
-                name, item.amount_g, nutrients,
-            ))
-        result = tuple(entries)
+        result = tuple(
+            self._build_entry(diary_date, item.meal, item.catalogue_item_id, item.amount_g) for item in items
+        )
         self.diary.add_many(result)
         return result
 
@@ -97,10 +85,10 @@ class DiaryService:
         return DayTotals(meals, total)
 
     def edit_amount(self, entry_id: str, amount_g: Decimal) -> DiaryEntry:
-        self._validate_amount(amount_g)
         entry = self.diary.get(entry_id)
         if entry is None:
             raise KeyError(f"Diary entry not found: {entry_id}")
+        self._validate_amount(amount_g, entry.basis)
         updated = replace(entry, amount_g=amount_g)
         self.diary.update_amount(updated)
         return updated
@@ -112,7 +100,9 @@ class DiaryService:
         entry = self.diary.get(entry_id)
         if entry is None:
             raise KeyError(f"Diary entry not found: {entry_id}")
-        checked = normalize_portions(entry.amount_g, ((p.meal, p.amount_g) for p in portions))
+        checked = normalize_portions(
+            entry.amount_g, ((p.meal, p.amount_g) for p in portions), entry.unit
+        )
         replacements = tuple(
             replace(entry, id=str(uuid.uuid4()), meal=portion.meal, amount_g=portion.amount_g)
             for portion in checked
@@ -136,7 +126,7 @@ class DiaryService:
 
     def restore_entry(self, entry: DiaryEntry) -> DiaryEntry:
         self._validate_date(entry.diary_date)
-        self._validate_amount(entry.amount_g)
+        self._validate_amount(entry.amount_g, entry.basis)
         self.diary.restore(entry)
         return entry
 

@@ -1,5 +1,5 @@
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self._view_indexes: dict[str, int] = {}
         self._build_layout()
+        self._install_navigation_shortcuts()
         self._select_view("Diary")
 
     def _build_layout(self) -> None:
@@ -79,6 +80,7 @@ class MainWindow(QMainWindow):
         rail_layout.addStretch(1)
         privacy = QLabel("Local and private\nData stays on this computer")
         privacy.setObjectName("privacyHint")
+        privacy.setWordWrap(True)
         rail_layout.addWidget(privacy)
 
         self.diary_view = DiaryView(self.services, self.notify)
@@ -99,23 +101,23 @@ class MainWindow(QMainWindow):
         arrow_down = (assets / "chevron-down.svg").as_posix()
         arrow_up = (assets / "chevron-up.svg").as_posix()
         stylesheet = """
-            QWidget { color: #243041; }
+            QWidget { color: #243041; font-size: 16px; }
             QMainWindow, QWidget#mainContent { background: #edf2f9; color: #243041; }
             QDialog { background: #e8eef7; color: #243041; }
             QWidget#navigationRail { background: #263752; border-right: 1px solid #1e2c43; }
             QLabel#brandLabel { color: #ffffff; font-size: 21px; font-weight: 700; }
-            QLabel#brandSubtitle { color: #d6e0ef; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
-            QLabel#privacyHint { color: #d0daea; font-size: 11px; }
+            QLabel#brandSubtitle { color: #d6e0ef; font-size: 14px; font-weight: 700; letter-spacing: 1px; }
+            QLabel#privacyHint { color: #d0daea; font-size: 14px; }
             QLabel { background: transparent; color: #243041; }
             /* Buttons: white fill + clear outline so they never melt into the tinted cards. */
             QPushButton { border: 1px solid #9db0cf; border-radius: 9px; padding: 9px 16px;
                          text-align: center; background: #ffffff; color: #243b61;
-                         font-size: 14px; font-weight: 500; }
+                         font-size: 16px; font-weight: 500; }
             QPushButton:hover { background: #eef3fc; border-color: #5f7fc0; }
             QPushButton:pressed { background: #dbe5f6; }
             QPushButton:focus { border: 1px solid #4f68c5; }
             QPushButton:disabled { background: #eef1f6; color: #8f9bb0; border-color: #d3dbe8; }
-            QPushButton[compact="true"] { padding: 5px 12px; font-size: 13px; border-radius: 7px; }
+            QPushButton[compact="true"] { padding: 5px 12px; font-size: 16px; border-radius: 7px; }
             QPushButton#previousDayButton, QPushButton#nextDayButton {
                 min-width: 44px; max-width: 44px; min-height: 42px; max-height: 42px;
                 padding: 4px; text-align: center; font-size: 22px; font-weight: 600; }
@@ -132,11 +134,11 @@ class MainWindow(QMainWindow):
                 border-right: 2px solid #91abd8; border-bottom: 2px solid #91abd8; }
             QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QDateEdit, QTableWidget, QListWidget {
                 background: #f1f5fb; color: #243041; border: 1px solid #c2cede;
-                border-radius: 7px; padding: 7px; min-height: 20px;
+                border-radius: 7px; padding: 7px; min-height: 22px; font-size: 16px;
                 selection-background-color: #dce6fb; selection-color: #243041; }
             QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus, QDateEdit:focus {
                 border: 1px solid #536fd1; }
-            QDateEdit { min-width: 145px; font-size: 14px; color: #172538; }
+            QDateEdit { min-width: 175px; font-size: 16px; color: #172538; }
             QComboBox, QDateEdit { padding-right: 30px; }
             QComboBox::drop-down, QDateEdit::drop-down {
                 subcontrol-origin: padding; subcontrol-position: right center; width: 30px;
@@ -159,14 +161,14 @@ class MainWindow(QMainWindow):
                 image: url("__ARROW_UP_URL__"); width: 14px; height: 10px; }
             QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
                 image: url("__ARROW_DOWN_URL__"); width: 14px; height: 10px; }
-            QMenu { background: #f1f5fb; color: #243041; border: 1px solid #c2cede; padding: 4px; }
+            QMenu { background: #f1f5fb; color: #243041; border: 1px solid #c2cede; padding: 4px; font-size: 16px; }
             QMenu::item { background: transparent; color: #243041; padding: 5px 18px; }
             QMenu::item:selected { background: #dce6fb; color: #243041; }
             QMenu::item:disabled { color: #738094; }
             QComboBox QAbstractItemView { background: #f1f5fb; color: #243041;
                 selection-background-color: #dce6fb; selection-color: #243041; }
             QTableWidget { gridline-color: #d1dceb; }
-            QHeaderView::section { background: #dfe8f5; color: #344154; border: 0; padding: 8px; }
+            QHeaderView::section { background: #dfe8f5; color: #344154; border: 0; padding: 8px; font-size: 15px; }
             QTableCornerButton::section { background: #dfe8f5; border: 0; }
             QScrollArea { background: #edf2f9; border: 0; }
             QCalendarWidget QWidget#qt_calendar_navigationbar { background: #dfe8f5; }
@@ -185,7 +187,7 @@ class MainWindow(QMainWindow):
             QCalendarWidget QTableView::item { border: 1px solid #d5dfed; }
             QCalendarWidget QAbstractItemView:enabled { color: #243041; selection-background-color: #e3eaf9;
                 selection-color: #243041; }
-            QStatusBar { background: #dfe8f5; color: #344154; }
+            QStatusBar { background: #dfe8f5; color: #344154; font-size: 15px; }
             QPushButton#primaryButton { background: #3f5bbf; color: #ffffff; border: 1px solid #334c9f;
                                        font-weight: 600; }
             QPushButton#primaryButton:hover { background: #324ba6; }
@@ -209,7 +211,12 @@ class MainWindow(QMainWindow):
             QDialog[dropActive="true"] { background: #dbe6ff; border: 2px dashed #4f68c5; }
             QLabel#csvDropZone { border: 2px dashed #7f93b8; border-radius: 10px; background: #f1f5fb;
                                 color: #3d56a3; font-weight: 600; padding: 12px; }
-            QCheckBox { color: #243041; spacing: 8px; }
+            QCheckBox, QRadioButton { color: #243041; spacing: 8px; font-size: 16px; }
+            QPlainTextEdit { background: #f1f5fb; color: #243041; border: 1px solid #c2cede; border-radius: 7px;
+                             padding: 7px; font-size: 16px; }
+            QPlainTextEdit:focus { border: 1px solid #536fd1; }
+            QPushButton#quickAddButton { background: #e6edff; color: #2c46a3; border: 1px solid #6f8be0; font-weight: 600; }
+            QPushButton#quickAddButton:hover { background: #d5e1ff; border-color: #4f68c5; }
             QWidget#catalogueRow { background: transparent; }
             QWidget#catalogueRow[selected="true"] { background: #dce6fb; border-radius: 7px; }
             QPushButton#recipeRemoveButton { min-height: 30px; padding: 5px 10px; }
@@ -218,11 +225,11 @@ class MainWindow(QMainWindow):
             QFrame#dialogBanner { background: #e6edff; border: 1px solid #b4c4ea; border-radius: 11px; }
             QFrame#dialogBanner[level="success"] { background: #e1f3e8; border-color: #9fd2b3; }
             QFrame#dialogBanner[level="warning"] { background: #fff0d2; border-color: #e5c176; }
-            QLabel#dialogBannerText { font-size: 13px; color: #243041; }
+            QLabel#dialogBannerText { font-size: 15px; color: #243041; }
             QLabel#foodPhotoPreview { background: #ffffff; border: 1px solid #c2cede; border-radius: 8px;
                                       color: #738094; }
             /* CSV repair popup */
-            QLabel#csvRepairStatus { font-size: 14px; padding: 2px 0; }
+            QLabel#csvRepairStatus { font-size: 16px; padding: 2px 0; }
             QListWidget#csvRepairIssues { background: #fbfcfe; padding: 4px; }
             QListWidget#csvRepairIssues::item { padding: 5px 8px; border-radius: 5px; color: #7d2630; }
             QListWidget#csvRepairIssues::item:selected { background: #fbe1e4; color: #5e1c24; }
@@ -254,15 +261,28 @@ class MainWindow(QMainWindow):
         heading.setStyleSheet("font-size: 26px; font-weight: 650; color: #172538;")
         layout.addWidget(heading)
         subheading = QLabel(message)
-        subheading.setStyleSheet("font-size: 14px; color: #738094;")
+        subheading.setStyleSheet("font-size: 16px; color: #738094;")
         layout.addWidget(subheading)
         layout.addStretch(1)
         return page
+
+    def _install_navigation_shortcuts(self) -> None:
+        """Ctrl+1…4 (Cmd on macOS) jump to Diary, Calendar, Foods and Settings."""
+        self._navigation_shortcuts = []
+        for number, (label, _icon, _tip) in enumerate(self.NAV_ITEMS, start=1):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+{number}"), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(lambda page=label: self._select_view(page))
+            self._navigation_shortcuts.append(shortcut)
+            self._nav_buttons[label].setToolTip(f"{_tip} (Ctrl+{number})")
 
     def _select_view(self, page: str) -> None:
         self._stack.setCurrentIndex(self._view_indexes[page])
         if page == "Calendar" and hasattr(self, "calendar_view"):
             self.calendar_view.refresh()  # pick up entries added since it was last shown
+        if page == "Foods" and hasattr(self, "foods_view"):
+            self.foods_view.refresh()  # include anything imported elsewhere (e.g. recipes from Settings)
+            self.foods_view.on_page_shown()
         for label, button in self._nav_buttons.items():
             button.setChecked(label == page)
 

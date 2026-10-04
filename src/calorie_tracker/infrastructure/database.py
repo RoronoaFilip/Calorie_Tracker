@@ -4,7 +4,7 @@ import sqlite3
 from typing import Iterator
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 BEGIN EXCLUSIVE;
@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS catalogue_items (
     kind TEXT NOT NULL CHECK (kind IN ('food', 'recipe')),
     archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
     nutrients_json TEXT NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'g' CHECK (basis IN ('g', 'count')),
     recipe_yield_g TEXT,
     source_key TEXT UNIQUE,
     source_row INTEGER,
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS diary_entries (
     catalogue_item_id TEXT REFERENCES catalogue_items(id) ON DELETE SET NULL,
     display_name TEXT NOT NULL,
     amount_g TEXT NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'g' CHECK (basis IN ('g', 'count')),
     nutrients_snapshot_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -58,7 +60,16 @@ CREATE TABLE IF NOT EXISTS recent_foods (
     last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_recent_foods_used ON recent_foods(last_used_at DESC);
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
+COMMIT;
+"""
+
+# Version 1 -> 2: foods can be counted per item instead of per 100 g. Existing rows stay per 100 g.
+_MIGRATION_1_TO_2 = """
+BEGIN EXCLUSIVE;
+ALTER TABLE catalogue_items ADD COLUMN basis TEXT NOT NULL DEFAULT 'g' CHECK (basis IN ('g', 'count'));
+ALTER TABLE diary_entries ADD COLUMN basis TEXT NOT NULL DEFAULT 'g' CHECK (basis IN ('g', 'count'));
+PRAGMA user_version = 2;
 COMMIT;
 """
 
@@ -78,6 +89,8 @@ class Database:
                 raise RuntimeError("Database schema is newer than this application.")
             if version == 0:
                 connection.executescript(_SCHEMA)
+            elif version == 1:
+                connection.executescript(_MIGRATION_1_TO_2)
         except Exception:
             if connection.in_transaction:
                 connection.rollback()

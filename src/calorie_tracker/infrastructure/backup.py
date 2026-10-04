@@ -39,7 +39,7 @@ class BackupService:
                 }
                 if integrity is None or integrity[0] != "ok":
                     raise ValueError("SQLite integrity check failed.")
-                if version is None or version[0] != SCHEMA_VERSION:
+                if version is None or not 1 <= version[0] <= SCHEMA_VERSION:
                     raise ValueError("Backup schema version is not supported.")
                 if not cls.REQUIRED_TABLES.issubset(tables):
                     raise ValueError("Backup is missing required application tables.")

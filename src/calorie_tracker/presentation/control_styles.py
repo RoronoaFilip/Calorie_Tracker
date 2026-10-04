@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -9,10 +9,14 @@ from PySide6.QtWidgets import (
     QApplication,
     QCalendarWidget,
     QComboBox,
+    QDateTimeEdit,
     QDialog,
+    QLineEdit,
     QMenu,
+    QPlainTextEdit,
     QPushButton,
     QTableView,
+    QTextEdit,
     QToolButton,
     QWidget,
 )
@@ -25,11 +29,66 @@ _CLICKABLE_TYPES = (QAbstractButton, QAbstractItemView, QAbstractSpinBox, QCombo
 CLOSE_DIALOG_SHORTCUT = "Ctrl+W"
 
 
+def _inside_item_view(widget: QWidget) -> bool:
+    """True for an in-cell editor (a line edit or spin box that lives inside a table or list)."""
+    parent = widget.parentWidget()
+    while parent is not None:
+        if isinstance(parent, QAbstractItemView):
+            return True
+        parent = parent.parentWidget()
+    return False
+
+
+def _select_all_later(line_edit: QLineEdit) -> None:
+    """Select the whole text once the click that focused the field has been handled."""
+    def select() -> None:
+        try:
+            if line_edit.hasFocus() and not line_edit.isReadOnly():
+                line_edit.selectAll()
+        except RuntimeError:  # the field was deleted before this ran
+            pass
+
+    QTimer.singleShot(0, select)
+
+
+def _handle_dialog_key(widget: QObject, event) -> bool:
+    """Escape closes the pop-up; Enter submits dialogs that know how (``handle_enter``). True = handled."""
+    if not isinstance(widget, QWidget) or event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier:
+        return False
+    if QApplication.activePopupWidget() is not None:  # a combo list, completer or calendar owns the key
+        return False
+    dialog = widget.window()
+    if not isinstance(dialog, QDialog) or not dialog.isVisible():
+        return False
+    editing_cell = isinstance(widget, QLineEdit) and _inside_item_view(widget)
+    if event.key() == Qt.Key.Key_Escape:
+        if editing_cell or isinstance(widget, QDateTimeEdit):
+            return False  # Escape first cancels the cell edit
+        dialog.reject()
+        return True
+    if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        handler = getattr(dialog, "handle_enter", None)
+        if handler is None or editing_cell or isinstance(widget, (QAbstractButton, QPlainTextEdit, QTextEdit)):
+            return False
+        return bool(handler(widget))
+    return False
+
+
 class _PointingCursorFilter(QObject):
-    """Polish-time app-wide behaviour: hand cursors, text-safe buttons, Ctrl+W on popups."""
+    """App-wide behaviour: hand cursors, text-safe buttons, Escape/Ctrl+W on popups, Enter to submit,
+    and select-all when a text field gets focus."""
 
     def eventFilter(self, watched, event) -> bool:
         kind = event.type()
+        if kind == QEvent.Type.KeyPress:
+            return _handle_dialog_key(watched, event)
+        if kind == QEvent.Type.FocusIn:
+            if isinstance(watched, QLineEdit) and not isinstance(watched.parentWidget(), QDateTimeEdit) \
+                    and event.reason() not in (
+                        Qt.FocusReason.PopupFocusReason, Qt.FocusReason.ActiveWindowFocusReason,
+                    ):
+                _select_all_later(watched)
+            return False
         if kind == QEvent.Type.Polish:
             _set_pointing_cursor(watched)
             if isinstance(watched, QPushButton):

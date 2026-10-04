@@ -3,16 +3,33 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import uuid
 
-from calorie_tracker.domain.nutrition import Nutrients, ZERO
+from calorie_tracker.domain.nutrition import BASIS_COUNT, BASIS_GRAMS, Nutrients, ZERO
 from calorie_tracker.domain.recipes import Food
-from .csv_headers import FOOD_FIELD_ALIASES, ColumnMatch, analyze_headers, describe_closest_header
+from .csv_headers import FOOD_FIELD_ALIASES, ColumnMatch, analyze_headers, describe_closest_header, normalize_header
 from .csv_issues import CsvIssue, cell_text, header_issues
 from .csv_reading import CsvReadError, CsvTable, parse_decimal, read_csv_rows
 from .repositories import FoodRepository
 from .source_map import EXCLUDED_ICE_CREAM_NAMES
 
 FOOD_REQUIRED_FIELDS = ("food_name", "calories", "protein", "fat", "carbohydrates")
-NUTRIENT_FIELDS = tuple(field for field in FOOD_FIELD_ALIASES if field not in ("food_name",))
+NUTRIENT_FIELDS = tuple(field for field in FOOD_FIELD_ALIASES if field not in ("food_name", "basis"))
+
+_GRAM_BASIS_WORDS = frozenset({"", "g", "gram", "grams", "100g", "100grams", "per100g", "per100grams", "weight"})
+_COUNT_BASIS_WORDS = frozenset({
+    "count", "percount", "item", "items", "peritem", "each", "piece", "pieces", "pcs", "pc",
+    "unit", "units", "quantity", "qty", "serving", "perserving",
+})
+
+
+def parse_basis(text: str) -> str | None:
+    """'g', 'per 100 g'... -> "g"; 'count', 'per item', 'each'... -> "count"; anything else -> None."""
+    key = normalize_header(text)
+    if key in _GRAM_BASIS_WORDS:
+        return BASIS_GRAMS
+    if key in _COUNT_BASIS_WORDS:
+        return BASIS_COUNT
+    return None
+
 FIELD_LABELS = {
     "food_name": "food name", "calories": "calories / 100g", "protein": "protein / 100g",
     "fat": "fat / 100g", "carbohydrates": "carbohydrates / 100g",
@@ -125,6 +142,8 @@ class CsvFoodImporter:
                 raw = cell_text(table.rows, row, column)
                 if field == "food_name":
                     message = "Food name is blank."
+                elif field == "basis":
+                    message = f"“{raw}” is not a basis. Use g (values per 100 g) or count (values per item)."
                 elif raw:
                     message = f"“{raw}” is not a valid number. Enter 0 or more (per 100 g)."
                 else:
@@ -200,6 +219,20 @@ class CsvFoodImporter:
                         f"Row {source_row} ({name or 'unnamed food'}): enter a non-negative number in {header[position]}"
                         + (" (required)." if field in ("calories", "protein", "fat", "carbohydrates") else ".")
                     )
+            basis = BASIS_GRAMS
+            if "basis" in positions:
+                position = positions["basis"]
+                raw_basis = values[position].strip() if len(values) > position else ""
+                parsed_basis = parse_basis(raw_basis)
+                if parsed_basis is None:
+                    correction_fields.append("basis")
+                    row_errors.append(
+                        f"Row {source_row} ({name or 'unnamed food'}): “{raw_basis}” is not a basis; "
+                        "use g (per 100 g) or count (per item)."
+                    )
+                else:
+                    basis = parsed_basis
+                shown["basis"] = "item" if basis == BASIS_COUNT else "100 g"
             if row_errors:
                 numeric_errors = [error for error in row_errors if "enter a non-negative number" in error]
             else:
@@ -211,7 +244,7 @@ class CsvFoodImporter:
                 "csv:food:" + normalized if name else f"csv:food:row:{source_row}"
             )
             stable_id = str(uuid.uuid5(uuid.NAMESPACE_URL, source_key))
-            imported_food = Food(stable_id, name, Nutrients.from_mapping(nutrients))
+            imported_food = Food(stable_id, name, Nutrients.from_mapping(nutrients), True, basis)
             if correction_fields:
                 invalid_foods.append(InvalidImportFood(
                     imported_food, source_key, source_row, tuple(correction_fields), tuple(row_errors)

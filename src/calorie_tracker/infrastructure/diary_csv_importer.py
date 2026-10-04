@@ -23,7 +23,7 @@ FORMAT_GUIDANCE = (
     f"\n\nExpected header: {FOOD_NAME_HEADER},{AMOUNT_HEADER},{MEAL_HEADER}\n"
     "Example row: Oats,45.5,Breakfast\n"
     "The amount column may also be called 'grams eaten', 'grams', 'amount' or 'quantity'. "
-    "Amounts are in grams. The meal column is optional; if omitted, choose a meal for each valid row."
+    "Amounts are in grams (or a number of items for foods counted per item). The meal column is optional; if omitted, choose a meal for each valid row."
 )
 
 _MEAL_WORDS = {
@@ -60,6 +60,7 @@ class DiaryCsvRow:
     # (field, message) for bad *values* (blank name, unusable amount or meal) as opposed to catalogue matching
     # problems; the CSV repair screen is shown for these.
     value_problems: tuple[tuple[str, str], ...] = ()
+    basis: str = "g"  # of the matched food: the amount is grams ("g") or a number of items ("count")
 
     @property
     def is_importable(self) -> bool:
@@ -129,11 +130,13 @@ class CsvDiaryImporter:
             raise
         columns = analysis.positions
         foods_by_name: dict[str, list[str]] = {}
+        basis_by_id: dict[str, str] = {}
         display_names: dict[str, str] = {}
         for food in self.foods.search(""):
             if food.active:
                 key = _name_key(food.name)
                 foods_by_name.setdefault(key, []).append(food.id)
+                basis_by_id[food.id] = food.basis
                 display_names[key] = food.name
         parsed: list[DiaryCsvRow] = []
         for index in range(header_index + 1, len(rows)):
@@ -185,7 +188,7 @@ class CsvDiaryImporter:
 
             parsed.append(DiaryCsvRow(
                 index + 1, name, amount, meal, food_id, "; ".join(errors) if errors else None,
-                tuple(value_problems),
+                tuple(value_problems), basis_by_id.get(food_id, "g") if food_id else "g",
             ))
         return DiaryCsvPreview(
             tuple(parsed), analysis.matches, analysis.ignored, header_index + 1, table.delimiter

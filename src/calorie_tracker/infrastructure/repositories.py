@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from calorie_tracker.domain.nutrition import Nutrients
+from calorie_tracker.domain.nutrition import Nutrients, check_basis
 from calorie_tracker.domain.diary import DiaryEntry
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient, RecipePreview, preview_recipe
 from .database import Database
@@ -19,6 +19,13 @@ def _nutrients_from_json(value: str) -> Nutrients:
     return Nutrients(**{key: Decimal(number) for key, number in raw.items()})
 
 
+def _food_from_row(row: sqlite3.Row) -> Food:
+    return Food(
+        row["id"], row["name"], _nutrients_from_json(row["nutrients_json"]),
+        not bool(row["archived"]), row["basis"],
+    )
+
+
 class FoodRepository:
     def __init__(self, database: Database):
         self.database = database
@@ -27,14 +34,14 @@ class FoodRepository:
         with self.database.transaction() as connection:
             connection.execute(
                 """INSERT INTO catalogue_items
-                   (id, name, normalized_name, kind, archived, nutrients_json, source_key, source_row)
-                   VALUES (?, ?, ?, 'food', ?, ?, ?, ?)
+                   (id, name, normalized_name, kind, archived, nutrients_json, basis, source_key, source_row)
+                   VALUES (?, ?, ?, 'food', ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                      name=excluded.name, normalized_name=excluded.normalized_name,
                      archived=excluded.archived, nutrients_json=excluded.nutrients_json,
-                     updated_at=CURRENT_TIMESTAMP""",
+                     basis=excluded.basis, updated_at=CURRENT_TIMESTAMP""",
                 (food.id, food.name, food.name.strip().casefold(), int(not food.active),
-                 _nutrients_to_json(food.nutrients_per_100g), source_key, source_row),
+                 _nutrients_to_json(food.nutrients_per_100g), check_basis(food.basis), source_key, source_row),
             )
 
     def seed_foods(self, foods: tuple[tuple[Food, str, int], ...]) -> tuple[int, int, int]:
@@ -55,10 +62,10 @@ class FoodRepository:
                     continue
                 connection.execute(
                     """INSERT INTO catalogue_items
-                       (id, name, normalized_name, kind, archived, nutrients_json, source_key, source_row)
-                       VALUES (?, ?, ?, 'food', ?, ?, ?, ?)""",
+                       (id, name, normalized_name, kind, archived, nutrients_json, basis, source_key, source_row)
+                       VALUES (?, ?, ?, 'food', ?, ?, ?, ?, ?)""",
                     (food.id, food.name, food.name.strip().casefold(), int(not food.active),
-                     _nutrients_to_json(food.nutrients_per_100g), source_key, source_row),
+                     _nutrients_to_json(food.nutrients_per_100g), check_basis(food.basis), source_key, source_row),
                 )
                 imported += 1
         return imported, already_present, name_conflicts
@@ -66,12 +73,12 @@ class FoodRepository:
     def get(self, food_id: str) -> Food | None:
         with self.database.read_connection() as connection:
             row = connection.execute(
-                "SELECT id, name, nutrients_json, archived FROM catalogue_items WHERE id=? AND kind='food'",
+                "SELECT id, name, nutrients_json, archived, basis FROM catalogue_items WHERE id=? AND kind='food'",
                 (food_id,),
             ).fetchone()
         if row is None:
             return None
-        return Food(row["id"], row["name"], _nutrients_from_json(row["nutrients_json"]), not bool(row["archived"]))
+        return _food_from_row(row)
 
     def archive(self, food_id: str) -> None:
         with self.database.transaction() as connection:
@@ -84,15 +91,12 @@ class FoodRepository:
         pattern = f"%{query.strip().casefold()}%"
         with self.database.read_connection() as connection:
             rows = connection.execute(
-                """SELECT id, name, nutrients_json, archived FROM catalogue_items
+                """SELECT id, name, nutrients_json, archived, basis FROM catalogue_items
                    WHERE kind='food' AND (? OR archived=0) AND normalized_name LIKE ?
                    ORDER BY normalized_name, id""",
                 (int(include_archived), pattern),
             ).fetchall()
-        return tuple(
-            Food(row["id"], row["name"], _nutrients_from_json(row["nutrients_json"]), not bool(row["archived"]))
-            for row in rows
-        )
+        return tuple(_food_from_row(row) for row in rows)
 
 
 class SettingsRepository:
@@ -177,14 +181,14 @@ class RecipeRepository:
             if row is None:
                 return None
             ingredient_rows = connection.execute(
-                """SELECT f.id, f.name, f.nutrients_json, f.archived, ri.amount_g
+                """SELECT f.id, f.name, f.nutrients_json, f.archived, f.basis, ri.amount_g
                    FROM recipe_ingredients ri JOIN catalogue_items f ON f.id=ri.food_id
                    WHERE ri.recipe_id=? ORDER BY ri.position""",
                 (recipe_id,),
             ).fetchall()
         ingredients = tuple(
             RecipeIngredient(
-                Food(item["id"], item["name"], _nutrients_from_json(item["nutrients_json"]), not bool(item["archived"])),
+                _food_from_row(item),
                 Decimal(item["amount_g"]),
             )
             for item in ingredient_rows
@@ -221,7 +225,7 @@ class DiaryRepository:
         return DiaryEntry(
             row["id"], row["diary_date"], row["meal"], row["catalogue_item_id"],
             row["display_name"], Decimal(row["amount_g"]),
-            _nutrients_from_json(row["nutrients_snapshot_json"]),
+            _nutrients_from_json(row["nutrients_snapshot_json"]), row["basis"],
         )
 
     def add(self, entry: DiaryEntry) -> None:
@@ -231,10 +235,10 @@ class DiaryRepository:
     def _insert(connection: sqlite3.Connection, entry: DiaryEntry) -> None:
         connection.execute(
             """INSERT INTO diary_entries
-               (id, diary_date, meal, catalogue_item_id, display_name, amount_g, nutrients_snapshot_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (id, diary_date, meal, catalogue_item_id, display_name, amount_g, basis, nutrients_snapshot_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (entry.id, entry.diary_date, entry.meal, entry.catalogue_item_id, entry.display_name,
-             str(entry.amount_g), _nutrients_to_json(entry.nutrients_per_100g)),
+             str(entry.amount_g), check_basis(entry.basis), _nutrients_to_json(entry.nutrients_per_100g)),
         )
         if entry.catalogue_item_id is not None:
             connection.execute(

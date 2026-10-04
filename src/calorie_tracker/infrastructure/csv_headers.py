@@ -29,6 +29,17 @@ FOOD_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
     "sugars": ("sugars", "sugar", "sugars / 100g"),
     "omega_3": ("omega-3", "omega 3", "omega-3 / 100g"),
     "omega_6": ("omega-6", "omega 6", "omega-6 / 100g"),
+    # Optional: "g" (values are per 100 g, the default) or "count" (values are per single item).
+    "basis": ("basis", "per", "unit basis", "nutrients per", "serving basis"),
+}
+
+RECIPE_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
+    "recipe_name": ("recipe_name", "recipe name", "recipe", "dish", "name"),
+    "ingredient": (
+        "ingredient", "ingredient name", "ingredient_name", "food", "food name", "food_name", "item",
+    ),
+    "amount": ("amount", "amount_g", "amount (g)", "quantity", "qty", "grams", "grams_eaten", "weight"),
+    "yield_g": ("yield_g", "yield", "final yield", "yield (g)", "total weight", "final weight"),
 }
 
 DIARY_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
@@ -42,6 +53,8 @@ DIARY_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
 
 FIELD_LABELS: Mapping[str, str] = {
     "food_name": "Food name", "amount_g": "Amount (g)", "meal": "Meal",
+    "recipe_name": "Recipe name", "ingredient": "Ingredient", "amount": "Amount", "yield_g": "Final yield (g)",
+    "basis": "Per (g or count)",
     "calories": "Calories", "protein": "Protein", "fat": "Fat", "carbohydrates": "Carbohydrates",
     "fiber": "Fiber", "saturated_fat": "Saturated fat", "sugars": "Sugars",
     "omega_3": "Omega-3", "omega_6": "Omega-6",

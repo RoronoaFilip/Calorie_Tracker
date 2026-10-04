@@ -12,11 +12,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QRadioButton,
     QSizePolicy,
     QVBoxLayout,
+    QWidget,
 )
 
-from calorie_tracker.domain.nutrition import Nutrients
+from calorie_tracker.domain.nutrition import BASIS_COUNT, BASIS_GRAMS, Nutrients
 from calorie_tracker.domain.recipes import Food
 
 
@@ -78,6 +80,31 @@ class FoodDialog(QDialog):
         self.name_input.textChanged.connect(self.name_input.setToolTip)  # long names stay readable on hover
         self.name_input.setToolTip(self.name_input.text())
         form.addRow("Food name", self.name_input)
+        # How the values below are given: per 100 g (default) or per single item (an egg, a slice...).
+        self.basis_per_100g = QRadioButton("Per 100 g")
+        self.basis_per_100g.setObjectName("basisPer100g")
+        self.basis_per_item = QRadioButton("Per item (count)")
+        self.basis_per_item.setObjectName("basisPerItem")
+        self.basis_per_100g.setToolTip("Nutrients are given for 100 g. You log how many grams you ate.")
+        self.basis_per_item.setToolTip(
+            "Nutrients are given for one item, e.g. one large egg. You log how many items you ate (halves are fine)."
+        )
+        basis_row = QHBoxLayout()
+        basis_row.addWidget(self.basis_per_100g)
+        basis_row.addWidget(self.basis_per_item)
+        basis_row.addStretch(1)
+        basis_box = QWidget()
+        basis_box.setLayout(basis_row)
+        basis_row.setContentsMargins(0, 0, 0, 0)
+        self.basis_widget = basis_box
+        starting_basis = initial_food.basis if initial_food else BASIS_GRAMS
+        (self.basis_per_item if starting_basis == BASIS_COUNT else self.basis_per_100g).setChecked(True)
+        if food is not None:
+            # Recipes and the diary read the amounts of an existing food in its own unit, so it cannot change.
+            basis_box.setEnabled(False)
+            basis_box.setToolTip("The basis of an existing food cannot be changed. Add a new food instead.")
+        form.addRow("Nutrients are given", basis_box)
+        self._nutrient_row_labels: dict[str, QLabel] = {}
         self.nutrient_inputs = {}
         for key, label in NUTRIENT_LABELS:
             field = QDoubleSpinBox()
@@ -90,8 +117,12 @@ class FoodDialog(QDialog):
             if initial_food:
                 field.setValue(float(getattr(initial_food.nutrients_per_100g, key)))
             self.nutrient_inputs[key] = field
-            form.addRow(label + " / 100 g", field)
+            row_label = QLabel(label)
+            self._nutrient_row_labels[key] = row_label
+            form.addRow(row_label, field)
         layout.addLayout(form)
+        self.basis_per_item.toggled.connect(self._basis_toggled)
+        self._update_basis_labels()
         self.error_label = QLabel("")
         self.error_label.setObjectName("foodValidationErrors")
         self.error_label.setStyleSheet("color: #b53d48;")
@@ -100,6 +131,7 @@ class FoodDialog(QDialog):
         if correction_errors:
             self.error_label.setText("\n".join(correction_errors))
         self._set_correction_state("food_name", self.name_input)
+        self._set_correction_state("basis", self.basis_widget)
         self.name_input.textChanged.connect(lambda _: self._mark_corrected("food_name"))
         for key, field in self.nutrient_inputs.items():
             self._set_correction_state(key, field)
@@ -109,6 +141,10 @@ class FoodDialog(QDialog):
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        save_button.setDefault(True)
+        save_button.setObjectName("primaryButton")
+        self.name_input.setFocus()
 
     def _build_banner(self, banner: tuple[str, str] | None, image_path: str | None, layout: QVBoxLayout) -> None:
         level, text = banner if banner else ("info", "")
@@ -147,6 +183,25 @@ class FoodDialog(QDialog):
         layout.addWidget(frame)
         self.banner_frame = frame
 
+    @property
+    def basis(self) -> str:
+        return BASIS_COUNT if self.basis_per_item.isChecked() else BASIS_GRAMS
+
+    def _update_basis_labels(self) -> None:
+        unit = "item" if self.basis == BASIS_COUNT else "100 g"
+        for key, label in NUTRIENT_LABELS:
+            self._nutrient_row_labels[key].setText(f"{label} / {unit}")
+            self.nutrient_inputs[key].setAccessibleName(f"{label} per {unit}")
+
+    def _basis_toggled(self, *_args) -> None:
+        self._update_basis_labels()
+        self._mark_corrected("basis")
+
+    def handle_enter(self, _focus: QWidget) -> bool:
+        """Enter in any field saves the food (called by the app-wide Enter handling)."""
+        self._validate_and_accept()
+        return True
+
     def _validate_and_accept(self) -> None:
         if self._correction_fields:
             labels = ", ".join(self._field_label(field) for field in sorted(self._correction_fields))
@@ -169,7 +224,7 @@ class FoodDialog(QDialog):
         if name not in self._correction_fields:
             return
         self._correction_fields.remove(name)
-        widget = self.name_input if name == "food_name" else self.nutrient_inputs[name]
+        widget = self._correction_widget(name)
         widget.setStyleSheet("")
         widget.setAccessibleDescription("")
         widget.setToolTip("")
@@ -179,6 +234,13 @@ class FoodDialog(QDialog):
             labels = ", ".join(self._field_label(field) for field in sorted(self._correction_fields))
             self.error_label.setText(f"Still needs correction: {labels}.")
 
+    def _correction_widget(self, name: str):
+        if name == "food_name":
+            return self.name_input
+        if name == "basis":
+            return self.basis_widget
+        return self.nutrient_inputs[name]
+
     @staticmethod
     def _field_label(name: str) -> str:
         labels = {"food_name": "food name"}
@@ -186,4 +248,4 @@ class FoodDialog(QDialog):
 
     def food(self) -> Food:
         values = {name: Decimal(str(field.value())) for name, field in self.nutrient_inputs.items()}
-        return Food(self._food_id, self.name_input.text().strip(), Nutrients(**values))
+        return Food(self._food_id, self.name_input.text().strip(), Nutrients(**values), True, self.basis)

@@ -6,6 +6,22 @@ from typing import Mapping
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
 
+# What a food's nutrient values refer to: 100 g of it, or one counted item (one egg, one slice...).
+BASIS_GRAMS = "g"
+BASIS_COUNT = "count"
+BASES = (BASIS_GRAMS, BASIS_COUNT)
+
+
+def check_basis(basis: str) -> str:
+    if basis not in BASES:
+        raise ValueError(f"Unsupported nutrient basis: {basis!r}. Use 'g' (per 100 g) or 'count' (per item).")
+    return basis
+
+
+def unit_label(basis: str) -> str:
+    """Short unit shown after an amount: 'g' for weighed foods, 'pcs' for counted ones."""
+    return "pcs" if basis == BASIS_COUNT else "g"
+
 
 @dataclass(frozen=True)
 class Nutrients:
@@ -36,6 +52,12 @@ class Nutrients:
             item.name: getattr(self, item.name) * amount_g / HUNDRED
             for item in fields(self)
         })
+
+    def for_quantity(self, amount: Decimal, basis: str = BASIS_GRAMS) -> "Nutrients":
+        """Nutrients for ``amount`` grams (per-100 g values) or ``amount`` items (per-item values)."""
+        if basis == BASIS_COUNT:
+            return self * amount
+        return self.for_amount(amount)
 
     def per_100g_of_yield(self, yield_g: Decimal) -> "Nutrients":
         return self * HUNDRED / yield_g

@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -28,6 +29,7 @@ from calorie_tracker.presentation.dialogs.food_csv_review_dialog import FoodCsvR
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
 from calorie_tracker.presentation.file_drop import FileDropMixin
+from calorie_tracker.presentation.formatting import basis_phrase, format_macros
 
 
 OFFLINE_NOTICE = (
@@ -80,7 +82,7 @@ class FoodsView(FileDropMixin, QWidget):
         layout.addLayout(actions)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search foods and recipes")
+        self.search_input.setPlaceholderText("Search foods and recipes  (Ctrl+F)")
         self.search_input.setAccessibleName("Search foods and recipes")
         self.search_input.setAcceptDrops(False)  # let dropped CSVs reach the page
         layout.addWidget(self.search_input)
@@ -96,16 +98,65 @@ class FoodsView(FileDropMixin, QWidget):
         self.items.itemSelectionChanged.connect(self._on_selection_changed)
         self.items.itemDoubleClicked.connect(lambda _: self._edit_selected())
         layout.addWidget(self.items, 1)
+        self._install_shortcuts()
         self.refresh()
+
+    # ---- keyboard ---------------------------------------------------------------------------------------
+
+    def _install_shortcuts(self) -> None:
+        """Ctrl+F (Cmd+F on macOS) searches; Ctrl+N adds a food; Ctrl+Shift+N creates a recipe; Enter edits."""
+        bindings = (
+            (QKeySequence(QKeySequence.StandardKey.Find), self.focus_search),
+            (QKeySequence("Ctrl+N"), self._add_food),
+            (QKeySequence("Ctrl+Shift+N"), self._create_recipe),
+        )
+        self._shortcuts = []
+        for keys, action in bindings:
+            shortcut = QShortcut(keys, self)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(action)
+            self._shortcuts.append(shortcut)
+        self.items.installEventFilter(self)
+        self.search_input.installEventFilter(self)
+
+    def focus_search(self) -> None:
+        """Put the cursor in the search box with its text selected, so typing starts a new search."""
+        self.search_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.search_input.selectAll()
+
+    def on_page_shown(self) -> None:
+        """Called when the user navigates to this page: the search box is ready to type in."""
+        self.focus_search()
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if watched is self.search_input and key in (Qt.Key.Key_Down, Qt.Key.Key_Up) and self.items.count():
+                self.items.setFocus()
+                if self.items.currentRow() < 0:
+                    self.items.setCurrentRow(0)
+                return True
+            if watched is self.items and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._edit_selected()
+                return True
+            if watched is self.items and key == Qt.Key.Key_Delete and self._selected is not None:
+                kind, item_id = self._selected
+                name = self.items.currentItem().toolTip().split(",")[0]
+                self._archive_catalogue_item(kind, item_id, name)
+                return True
+        return super().eventFilter(watched, event)
 
     def refresh(self) -> None:
         query = self.search_input.text() if hasattr(self, "search_input") else ""
         self.items.clear()
-        records: list[tuple[str, str, str]] = []
-        records.extend((food.name, "food", food.id) for food in self.services.foods.search(query))
-        records.extend((recipe.draft.name, "recipe", recipe.id) for recipe in self.services.recipes.search(query))
-        for name, kind, item_id in sorted(records, key=lambda value: value[0].casefold()):
-            label = "Basic food · per 100g" if kind == "food" else "Recipe · per 100g"
+        records: list[tuple[str, str, str, str]] = []
+        for food in self.services.foods.search(query):
+            detail = f"Basic food · {basis_phrase(food.basis)} · {format_macros(food.nutrients_per_100g)}"
+            records.append((food.name, "food", food.id, detail))
+        for recipe in self.services.recipes.search(query):
+            detail = f"Recipe · per 100 g · {format_macros(recipe.per_100g)}"
+            records.append((recipe.draft.name, "recipe", recipe.id, detail))
+        for name, kind, item_id, label in sorted(records, key=lambda value: value[0].casefold()):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, (kind, item_id))
             item.setToolTip(f"{name}, {label}")
@@ -118,14 +169,14 @@ class FoodsView(FileDropMixin, QWidget):
     def _make_catalogue_row(self, name: str, detail: str, kind: str, item_id: str) -> QWidget:
         row = QWidget()
         row.setObjectName("catalogueRow")
-        row.setMinimumHeight(58)
+        row.setMinimumHeight(64)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(10, 6, 8, 6)
         layout.setSpacing(8)
         text_layout = QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)
         name_label = QLabel(name)
-        name_label.setStyleSheet("font-weight: 600; font-size: 16px;")
+        name_label.setStyleSheet("font-weight: 600; font-size: 18px;")
         detail_label = QLabel(detail)
         detail_label.setStyleSheet("font-size: 16px; color: #536175;")
         text_layout.addWidget(name_label)
