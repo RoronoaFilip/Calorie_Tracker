@@ -181,6 +181,8 @@ class NewFeatureUiTests(unittest.TestCase):
         self.application.processEvents()
         label = dialog.findChild(QLabel, "shortcutsText")
         for title, _entries in SHORTCUT_GROUPS:
+            if title == 'Foods & recipes':
+                title = "Foods &amp; recipes"
             self.assertIn(title, label.text())
         QTest.keyClick(dialog, Qt.Key.Key_Escape)
         self.assertFalse(dialog.isVisible())
