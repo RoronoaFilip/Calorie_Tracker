@@ -12,6 +12,7 @@ from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient, 
 from calorie_tracker.application.diary import DiaryEntryInput
 from calorie_tracker.infrastructure.backup import BackupService
 from calorie_tracker.infrastructure.database import Database
+from calorie_tracker.infrastructure.repositories import BasisInUseError
 
 _V1_SCHEMA = """
 CREATE TABLE catalogue_items (
@@ -63,6 +64,32 @@ class CountedFoodTests(unittest.TestCase):
     def test_basis_is_saved_and_defaults_to_grams(self):
         self.assertEqual(self.services.foods.get("egg").basis, "count")
         self.assertEqual(self.services.foods.get("oats").basis, "g")
+
+    def test_basis_can_be_changed_when_no_recipe_uses_the_food(self):
+        self.services.foods.save(Food("egg", "Egg", egg().nutrients_per_100g, True, "g"))
+        self.assertEqual(self.services.foods.get("egg").basis, "g")
+        self.services.foods.save(egg())
+        self.assertEqual(self.services.foods.get("egg").basis, "count")
+
+    def test_basis_cannot_change_while_a_recipe_uses_the_food_and_diary_keeps_its_snapshot(self):
+        entry = self.services.diary.add_item("2026-03-01", "Breakfast", "egg", Decimal("2"))
+        self.services.catalogue.save_recipe("r1", RecipeDraft("Eggs", Decimal("100"), (
+            RecipeIngredient(self.services.foods.get("egg"), Decimal("2")),
+        )))
+        with self.assertRaises(BasisInUseError) as caught:
+            self.services.foods.save(Food("egg", "Egg", egg().nutrients_per_100g, True, "g"))
+        self.assertIn("Eggs", str(caught.exception))
+        self.assertEqual(self.services.foods.get("egg").basis, "count")
+        self.assertEqual(self.services.foods.recipes_using("egg"), ("Eggs",))
+        # editing other details of the same basis is still fine
+        self.services.foods.save(Food("egg", "Egg L", egg().nutrients_per_100g, True, "count"))
+        self.assertEqual(self.services.diary.diary.get(entry.id).basis, "count")
+
+    def test_diary_history_keeps_its_basis_after_the_food_changes(self):
+        entry = self.services.diary.add_item("2026-03-01", "Breakfast", "egg", Decimal("2"))
+        self.services.foods.save(Food("egg", "Egg", egg().nutrients_per_100g, True, "g"))
+        kept = self.services.diary.diary.get(entry.id)
+        self.assertEqual((kept.basis, kept.nutrients.calories), ("count", Decimal("140")))
 
     def test_unknown_basis_is_rejected(self):
         with self.assertRaises(ValueError):

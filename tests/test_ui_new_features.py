@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtWidgets import QApplication, QLabel
 
 from calorie_tracker.bootstrap import build_services
 from calorie_tracker.domain.nutrition import BASIS_COUNT, Nutrients
@@ -131,6 +131,22 @@ class NewFeatureUiTests(unittest.TestCase):
         preview = self.services.diary_importer.preview_table(CsvTable(dialog.rows(), ",", "utf-8"))
         self.assertEqual(len([row for row in preview.rows if row.is_importable]), 2)
         self.assertTrue(diary.quick_add_button.isEnabled())
+
+    def test_settings_button_opens_the_shortcuts_popup_which_escape_closes(self):
+        from unittest.mock import patch
+        from calorie_tracker.presentation.dialogs.shortcuts_dialog import SHORTCUT_GROUPS, ShortcutsDialog
+        self.assertTrue(self.window.settings_view.shortcuts_button.isEnabled())
+        with patch("calorie_tracker.presentation.views.settings_view.ShortcutsDialog.exec") as opened:
+            self.window.settings_view.shortcuts_button.click()
+        opened.assert_called_once()
+        dialog = ShortcutsDialog(self.window)
+        dialog.show()
+        self.application.processEvents()
+        label = dialog.findChild(QLabel, "shortcutsText")
+        for title, _entries in SHORTCUT_GROUPS:
+            self.assertIn(title, label.text())
+        QTest.keyClick(dialog, Qt.Key.Key_Escape)
+        self.assertFalse(dialog.isVisible())
 
 
 if __name__ == "__main__":

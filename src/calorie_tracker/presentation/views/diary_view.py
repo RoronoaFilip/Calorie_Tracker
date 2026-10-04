@@ -18,22 +18,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from calorie_tracker.application.diary import MEALS
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.domain.diary import DiaryEntry
-from calorie_tracker.domain.diary import MealPortion
+from calorie_tracker.domain.nutrition import Nutrients
+from calorie_tracker.application.diary import MEALS
 from calorie_tracker.domain.nutrition import BASIS_GRAMS
 from calorie_tracker.infrastructure.csv_reading import CsvTable
 from calorie_tracker.presentation.amount_input import AmountSpinBox
 from calorie_tracker.presentation.control_styles import fit_button_text, style_calendar_arrows, style_chevron_button
-from calorie_tracker.presentation.csv_drop import CsvDropMixin
-from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
 from calorie_tracker.presentation.dialogs.add_entry_dialog import AddEntryDialog  # noqa: F401  (re-exported)
+from calorie_tracker.presentation.dialogs.quick_add_dialog import QuickAddDialog
+from calorie_tracker.presentation.formatting import format_entry_amount
+from calorie_tracker.infrastructure.diary_csv_importer import DiaryCsvFormatError
 from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog
 from calorie_tracker.presentation.dialogs.meal_split_dialog import MealSplitDialog
-from calorie_tracker.presentation.dialogs.quick_add_dialog import QuickAddDialog
-from calorie_tracker.presentation.formatting import format_entry_amount
+from calorie_tracker.domain.diary import MealPortion
+from calorie_tracker.presentation.csv_drop import CsvDropMixin
+from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
 
 
 class DiaryView(CsvDropMixin, QWidget):

@@ -99,10 +99,6 @@ class FoodDialog(QDialog):
         self.basis_widget = basis_box
         starting_basis = initial_food.basis if initial_food else BASIS_GRAMS
         (self.basis_per_item if starting_basis == BASIS_COUNT else self.basis_per_100g).setChecked(True)
-        if food is not None:
-            # Recipes and the diary read the amounts of an existing food in its own unit, so it cannot change.
-            basis_box.setEnabled(False)
-            basis_box.setToolTip("The basis of an existing food cannot be changed. Add a new food instead.")
         form.addRow("Nutrients are given", basis_box)
         self._nutrient_row_labels: dict[str, QLabel] = {}
         self.nutrient_inputs = {}

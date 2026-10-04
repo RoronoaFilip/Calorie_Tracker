@@ -19,6 +19,19 @@ def _nutrients_from_json(value: str) -> Nutrients:
     return Nutrients(**{key: Decimal(number) for key, number in raw.items()})
 
 
+class BasisInUseError(ValueError):
+    """A food's basis (per 100 g / per item) cannot change while recipes use it: their amounts would change meaning."""
+
+    def __init__(self, food_name: str, recipe_names: tuple[str, ...]):
+        shown = ", ".join(recipe_names[:5]) + (f" and {len(recipe_names) - 5} more" if len(recipe_names) > 5 else "")
+        super().__init__(
+            f"“{food_name}” is an ingredient of: {shown}. Changing between per 100 g and per item would change "
+            "what those ingredient amounts mean, so edit or remove it in those recipes first. "
+            "Diary history is not affected."
+        )
+        self.recipe_names = recipe_names
+
+
 def _food_from_row(row: sqlite3.Row) -> Food:
     return Food(
         row["id"], row["name"], _nutrients_from_json(row["nutrients_json"]),
@@ -30,8 +43,29 @@ class FoodRepository:
     def __init__(self, database: Database):
         self.database = database
 
+    def recipes_using(self, food_id: str) -> tuple[str, ...]:
+        """Names of the recipes that have this food as an ingredient."""
+        with self.database.read_connection() as connection:
+            rows = connection.execute(
+                """SELECT DISTINCT r.name FROM recipe_ingredients ri
+                   JOIN catalogue_items r ON r.id=ri.recipe_id WHERE ri.food_id=? ORDER BY r.name""",
+                (food_id,),
+            ).fetchall()
+        return tuple(row["name"] for row in rows)
+
     def save(self, food: Food, source_key: str | None = None, source_row: int | None = None) -> None:
         with self.database.transaction() as connection:
+            existing = connection.execute(
+                "SELECT basis FROM catalogue_items WHERE id=? AND kind='food'", (food.id,)
+            ).fetchone()
+            if existing is not None and existing["basis"] != check_basis(food.basis):
+                used_in = connection.execute(
+                    """SELECT DISTINCT r.name FROM recipe_ingredients ri
+                       JOIN catalogue_items r ON r.id=ri.recipe_id WHERE ri.food_id=? ORDER BY r.name""",
+                    (food.id,),
+                ).fetchall()
+                if used_in:
+                    raise BasisInUseError(food.name, tuple(row["name"] for row in used_in))
             connection.execute(
                 """INSERT INTO catalogue_items
                    (id, name, normalized_name, kind, archived, nutrients_json, basis, source_key, source_row)

@@ -24,6 +24,7 @@ from calorie_tracker.infrastructure.recipe_csv_importer import RecipeCsvFormatEr
 from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
 from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.recipe_csv_review_dialog import RecipeCsvReviewDialog
+from calorie_tracker.presentation.dialogs.shortcuts_dialog import ShortcutsDialog
 
 
 class SettingsView(QWidget):
@@ -145,6 +146,25 @@ class SettingsView(QWidget):
         catalogue_actions.addStretch(1)
         catalogue_layout.addLayout(catalogue_actions)
         layout.addWidget(catalogue_card)
+
+        keyboard_card = QFrame()
+        keyboard_card.setObjectName("card")
+        keyboard_layout = QVBoxLayout(keyboard_card)
+        keyboard_title = QLabel("Keyboard")
+        keyboard_title.setStyleSheet("font-weight: 650;")
+        keyboard_layout.addWidget(keyboard_title)
+        keyboard_text = QLabel("See every keyboard shortcut in the app. You can also press F1 on any page.")
+        keyboard_text.setWordWrap(True)
+        keyboard_layout.addWidget(keyboard_text)
+        keyboard_actions = QHBoxLayout()
+        self.shortcuts_button = QPushButton("Keyboard shortcuts")
+        self.shortcuts_button.setObjectName("keyboardShortcutsButton")
+        self.shortcuts_button.setToolTip("Explain the keyboard shortcuts (F1)")
+        self.shortcuts_button.clicked.connect(self.show_shortcuts)
+        keyboard_actions.addWidget(self.shortcuts_button)
+        keyboard_actions.addStretch(1)
+        keyboard_layout.addLayout(keyboard_actions)
+        layout.addWidget(keyboard_card)
         layout.addStretch(1)
 
     def _open_data_folder(self) -> None:
@@ -164,6 +184,9 @@ class SettingsView(QWidget):
         count = export_diary_csv(self.services.diary.all_entries(), filename)
         self.notify(f"Exported {count} diary entr{'y' if count == 1 else 'ies'} to {filename}.")
         return count
+
+    def show_shortcuts(self) -> None:
+        ShortcutsDialog(self).exec()
 
     # ---- foods and recipes ----------------------------------------------------------------------------
 

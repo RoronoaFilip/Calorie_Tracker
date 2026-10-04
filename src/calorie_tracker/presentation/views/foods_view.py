@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from calorie_tracker.bootstrap import ApplicationServices
+from calorie_tracker.infrastructure.repositories import BasisInUseError
 from calorie_tracker.paths import seed_csv_path
 from calorie_tracker.presentation.control_styles import fit_button_text
 from calorie_tracker.application.product_import import FOUND, OFFLINE
@@ -250,7 +251,11 @@ class FoodsView(FileDropMixin, QWidget):
                 return
             dialog = FoodDialog(self, food)
             if dialog.exec() == FoodDialog.DialogCode.Accepted:
-                self.services.foods.save(dialog.food())
+                try:
+                    self.services.foods.save(dialog.food())
+                except BasisInUseError as error:
+                    QMessageBox.warning(self, "Cannot change per 100 g / per item", str(error))
+                    return
                 self.refresh()
                 self.notify("Food changes saved. Diary history keeps its original snapshot.")
             return

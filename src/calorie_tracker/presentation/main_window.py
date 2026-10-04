@@ -275,6 +275,10 @@ class MainWindow(QMainWindow):
             shortcut.activated.connect(lambda page=label: self._select_view(page))
             self._navigation_shortcuts.append(shortcut)
             self._nav_buttons[label].setToolTip(f"{_tip} (Ctrl+{number})")
+        help_shortcut = QShortcut(QKeySequence("F1"), self)
+        help_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        help_shortcut.activated.connect(lambda: self.settings_view.show_shortcuts())
+        self._navigation_shortcuts.append(help_shortcut)
 
     def _select_view(self, page: str) -> None:
         self._stack.setCurrentIndex(self._view_indexes[page])
