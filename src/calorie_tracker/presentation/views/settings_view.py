@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QLabel,
     QFileDialog,
+    QScrollArea,
     QHBoxLayout,
     QMessageBox,
     QPushButton,
@@ -41,7 +42,19 @@ class SettingsView(QWidget):
         self.services = services
         self.notify = notify
         self.setObjectName("mainContent")
-        layout = QVBoxLayout(self)
+        # The whole page scrolls, so nothing is squeezed when the window is small.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("settingsScroll")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        content.setObjectName("settingsContent")
+        self.scroll_area.setWidget(content)
+        outer.addWidget(self.scroll_area)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(40, 34, 40, 36)
         layout.setSpacing(15)
         heading = QLabel("Settings")

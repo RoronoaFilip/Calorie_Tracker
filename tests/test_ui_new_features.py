@@ -148,6 +148,16 @@ class NewFeatureUiTests(unittest.TestCase):
         QTest.keyClick(dialog, Qt.Key.Key_Escape)
         self.assertFalse(dialog.isVisible())
 
+    def test_settings_page_scrolls_instead_of_squeezing_its_cards(self):
+        self.window.resize(1040, 680)
+        self.window.show()
+        self.window._select_view("Settings")
+        self.application.processEvents()
+        scroll = self.window.settings_view.scroll_area
+        self.assertTrue(scroll.widgetResizable())
+        self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
+        self.assertIn("QScrollBar::handle:vertical", self.window.styleSheet())
+
 
 if __name__ == "__main__":
     unittest.main()

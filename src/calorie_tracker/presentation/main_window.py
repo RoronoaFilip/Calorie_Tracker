@@ -171,6 +171,18 @@ class MainWindow(QMainWindow):
             QHeaderView::section { background: #dfe8f5; color: #344154; border: 0; padding: 8px; font-size: 15px; }
             QTableCornerButton::section { background: #dfe8f5; border: 0; }
             QScrollArea { background: #edf2f9; border: 0; }
+            QWidget#settingsContent { background: #edf2f9; }
+            /* Scroll bars: a clearly coloured handle on a tinted track, so they are easy to see and grab. */
+            QScrollBar:vertical { background: #d3deef; width: 16px; margin: 0; border-radius: 8px; }
+            QScrollBar::handle:vertical { background: #3f5bbf; min-height: 40px; border-radius: 6px; margin: 2px; }
+            QScrollBar::handle:vertical:hover { background: #324ba6; }
+            QScrollBar::handle:vertical:pressed { background: #2a3f8c; }
+            QScrollBar:horizontal { background: #d3deef; height: 16px; margin: 0; border-radius: 8px; }
+            QScrollBar::handle:horizontal { background: #3f5bbf; min-width: 40px; border-radius: 6px; margin: 2px; }
+            QScrollBar::handle:horizontal:hover { background: #324ba6; }
+            QScrollBar::handle:horizontal:pressed { background: #2a3f8c; }
+            QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; background: none; border: 0; }
+            QScrollBar::add-page, QScrollBar::sub-page { background: none; }
             QCalendarWidget QWidget#qt_calendar_navigationbar { background: #dfe8f5; }
             QCalendarWidget { background: #f1f5fb; border: 1px solid #c2cede; border-radius: 8px; }
             QCalendarWidget QToolButton { color: #405985; background: transparent; border: 0;
