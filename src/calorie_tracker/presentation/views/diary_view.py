@@ -93,7 +93,7 @@ class DiaryView(CsvDropMixin, QWidget):
         self.quick_add_button.setObjectName("quickAddButton")
         self.quick_add_button.setAccessibleName("Quick add several entries")
         self.quick_add_button.setToolTip(
-            "Add several foods to several meals at once, one per line (Ctrl+Shift+A)"
+            "Add several foods to several meals at once in a table (Ctrl+Shift+A)"
         )
         self.quick_add_button.clicked.connect(self.open_quick_add)
         header.addWidget(self.quick_add_button)
@@ -252,7 +252,7 @@ class DiaryView(CsvDropMixin, QWidget):
 
     def open_quick_add(self) -> None:
         """Type several entries, fix what was not understood on the review screen, then save them all."""
-        dialog = QuickAddDialog(self.selected_date, self)
+        dialog = QuickAddDialog(self.services, self.selected_date, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         table = CsvTable(dialog.rows(), ",", "utf-8")

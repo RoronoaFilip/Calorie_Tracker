@@ -29,12 +29,12 @@ _CLICKABLE_TYPES = (QAbstractButton, QAbstractItemView, QAbstractSpinBox, QCombo
 CLOSE_DIALOG_SHORTCUT = "Ctrl+W"
 
 
-def _inside_item_view(widget: QWidget) -> bool:
-    """True for an in-cell editor (a line edit or spin box that lives inside a table or list)."""
+def _editing_in_item_view(widget: QWidget) -> bool:
+    """True while ``widget`` is the editor of a table/list cell being edited (not a widget placed in a cell)."""
     parent = widget.parentWidget()
     while parent is not None:
         if isinstance(parent, QAbstractItemView):
-            return True
+            return parent.state() == QAbstractItemView.State.EditingState
         parent = parent.parentWidget()
     return False
 
@@ -60,7 +60,7 @@ def _handle_dialog_key(widget: QObject, event) -> bool:
     dialog = widget.window()
     if not isinstance(dialog, QDialog) or not dialog.isVisible():
         return False
-    editing_cell = isinstance(widget, QLineEdit) and _inside_item_view(widget)
+    editing_cell = isinstance(widget, QLineEdit) and _editing_in_item_view(widget)
     if event.key() == Qt.Key.Key_Escape:
         if editing_cell or isinstance(widget, QDateTimeEdit):
             return False  # Escape first cancels the cell edit

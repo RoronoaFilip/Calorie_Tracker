@@ -8,7 +8,7 @@ Log what you eat, build your own food and recipe catalogue, and see how each day
 
 ### Track your day
 - Log foods and recipes into **Breakfast, Lunch, Dinner and Snacks**: by gram amount, or by **count** for foods you add "per item" (an egg, a slice of bread; halves and thirds are fine).
-- **Quick add** several entries on several meals at once: type one line each ("Oats 45 breakfast", "Egg 1/2 lunch") and fix anything that was not understood on the review table.
+- **Quick add** several entries on several meals at once: fill in a table of food (type to search), amount and meal, then check it on the same review table as a CSV import.
 - See calories and nutrients add up per meal and for the whole day.
 - Set **daily targets** in Settings. Progress bars on the Diary page show how you're doing; leave a target unset and its bar is hidden.
 - Find foods fast with search and a **Recently used** list.

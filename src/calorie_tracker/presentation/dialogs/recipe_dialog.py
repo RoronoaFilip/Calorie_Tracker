@@ -307,6 +307,8 @@ class RecipeDialog(QDialog):
         )
         if in_ingredient_row:
             self._add_ingredient()
+        elif self.ingredient_table.isAncestorOf(focus):
+            self.food_picker.setFocus()  # an amount was edited in the table: confirm it, keep working
         else:
             self._validate_and_accept()
         return True

@@ -122,15 +122,52 @@ class NewFeatureUiTests(unittest.TestCase):
         self.application.processEvents()
         self.assertEqual(dialog.name_input.selectedText(), "Oats")
 
-    def test_quick_add_reviews_lines_and_saves_them(self):
-        diary = self.window.diary_view
-        dialog = QuickAddDialog("2026-10-04")
+    def test_quick_add_table_builds_csv_rows_from_the_inputs(self):
+        dialog = QuickAddDialog(self.services, "2026-10-04")
         self.addCleanup(dialog.close)
-        dialog.text_input.setPlainText("Oats 50 breakfast\nLarge egg 2 breakfast")
-        from calorie_tracker.infrastructure.csv_reading import CsvTable
-        preview = self.services.diary_importer.preview_table(CsvTable(dialog.rows(), ",", "utf-8"))
-        self.assertEqual(len([row for row in preview.rows if row.is_importable]), 2)
-        self.assertTrue(diary.quick_add_button.isEnabled())
+        self.assertFalse(dialog.review_button.isEnabled())
+        dialog.food_combo(0).lineEdit().setText("Oats")
+        dialog.amount_input(0).setValue(50)
+        dialog.meal_combo(0).setCurrentText("Lunch")
+        dialog.food_combo(1).lineEdit().setText("Large egg")
+        self.assertEqual(dialog.amount_input(1).basis, "count")  # counted food: the amount is a number of items
+        dialog.amount_input(1).setValue(0.5)
+        self.assertTrue(dialog.review_button.isEnabled())
+        self.assertEqual(dialog.rows(), [
+            ["food_name", "grams_eaten", "meal"], ["Oats", "50", "Lunch"], ["Large egg", "0.5", dialog.meal_combo(1).currentText()],
+        ])
+        completer = dialog.food_combo(0).completer()
+        self.assertEqual(completer.filterMode(), Qt.MatchFlag.MatchContains)
+
+    def test_quick_add_enter_moves_through_the_row_and_adds_rows(self):
+        dialog = QuickAddDialog(self.services, "2026-10-04")
+        dialog.show()
+        self.application.processEvents()
+        start = dialog.row_count()
+        dialog.food_combo(0).lineEdit().setText("Oats")
+        dialog.handle_enter(dialog.food_combo(0).lineEdit())
+        self.assertTrue(dialog.amount_input(0).lineEdit().hasFocus() or dialog.amount_input(0).hasFocus())
+        last = start - 1
+        dialog.food_combo(last).lineEdit().setText("Oats")
+        dialog.handle_enter(dialog.amount_input(last).lineEdit())
+        self.assertEqual(dialog.row_count(), start + 1)
+        dialog.close()
+
+    def test_quick_add_ctrl_plus_adds_a_row(self):
+        dialog = QuickAddDialog(self.services, "2026-10-04")
+        dialog.show()
+        self.application.processEvents()
+        start = dialog.row_count()
+        QTest.keyClick(dialog.food_combo(0).lineEdit(), Qt.Key.Key_Plus, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(dialog.row_count(), start + 1)
+        dialog.close()
+
+    def test_escape_still_works_from_a_widget_placed_in_a_table_cell(self):
+        dialog = QuickAddDialog(self.services, "2026-10-04")
+        dialog.show()
+        self.application.processEvents()
+        QTest.keyClick(dialog.food_combo(0).lineEdit(), Qt.Key.Key_Escape)
+        self.assertFalse(dialog.isVisible())
 
     def test_settings_button_opens_the_shortcuts_popup_which_escape_closes(self):
         from unittest.mock import patch

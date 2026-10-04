@@ -5,7 +5,7 @@ import unittest
 from decimal import Decimal
 from pathlib import Path
 
-from calorie_tracker.application.quick_add import parse_quick_line, quick_add_rows
+from calorie_tracker.application.quick_add import quick_add_rows
 from calorie_tracker.bootstrap import build_services
 from calorie_tracker.domain.nutrition import BASIS_COUNT, Nutrients
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient
@@ -128,15 +128,15 @@ class CatalogueTransferTests(unittest.TestCase):
 
 
 class QuickAddTests(unittest.TestCase):
-    def test_lines_in_several_styles(self):
-        self.assertEqual(parse_quick_line("Oats 45 breakfast"), ["Oats", "45", "breakfast"])
-        self.assertEqual(parse_quick_line("Greek yogurt 150 g snacks"), ["Greek yogurt", "150", "snacks"])
-        self.assertEqual(parse_quick_line("Egg 1/2 lunch"), ["Egg", "0.5", "lunch"])
-        self.assertEqual(parse_quick_line("Egg 1 1/2"), ["Egg", "1.5", ""])
-        self.assertEqual(parse_quick_line("45 g oats dinner"), ["oats", "45", "dinner"])
-        self.assertEqual(parse_quick_line("Oats,45.5,Breakfast"), ["Oats", "45.5", "Breakfast"])
-        self.assertEqual(parse_quick_line("Oats 45", "Snacks"), ["Oats", "45", "Snacks"])
-        self.assertEqual(parse_quick_line("gibberish"), ["gibberish", "", ""])
+    def test_table_rows_become_csv_rows_and_blank_foods_are_dropped(self):
+        rows = quick_add_rows([
+            ("Oats", "45.0", "Breakfast"), ("Egg", Decimal("0.50"), "Lunch"),
+            ("  ", "10", "Dinner"), ("Rice", 100.0, "Snacks"),
+        ])
+        self.assertEqual(rows, [
+            ["food_name", "grams_eaten", "meal"],
+            ["Oats", "45", "Breakfast"], ["Egg", "0.5", "Lunch"], ["Rice", "100", "Snacks"],
+        ])
 
     def test_rows_go_through_the_normal_diary_import_checks(self):
         temp = tempfile.TemporaryDirectory()
@@ -145,14 +145,16 @@ class QuickAddTests(unittest.TestCase):
         self.addCleanup(lambda: [h.close() for h in logging.getLogger("calorie_tracker").handlers[:]])
         services.foods.save(Food("oats", "Oats", Nutrients(calories=Decimal("380"))))
         services.foods.save(Food("egg", "Egg", Nutrients(calories=Decimal("70")), True, BASIS_COUNT))
-        rows = quick_add_rows("Oats 45 breakfast\nEgg 2 breakfast\nPorridge 100 lunch\nOats\n")
-        preview = services.diary_importer.preview_table(CsvTable(rows, ",", "utf-8"))
-        oats, egg, porridge, bare = preview.rows
+        rows = quick_add_rows([
+            ("Oats", "45", "Breakfast"), ("Egg", "0.5", "Breakfast"), ("Porridge", "100", "Lunch"),
+        ])
+        table = CsvTable(rows, ",", "utf-8")
+        preview = services.diary_importer.preview_table(table)
+        oats, egg, porridge = preview.rows
         self.assertTrue(oats.is_importable and egg.is_importable)
-        self.assertEqual((egg.basis, egg.amount_g, egg.meal), ("count", Decimal("2"), "Breakfast"))
+        self.assertEqual((egg.basis, egg.amount_g, egg.meal), ("count", Decimal("0.5"), "Breakfast"))
         self.assertFalse(porridge.is_importable)
-        self.assertFalse(bare.is_importable)
-        self.assertTrue(services.diary_importer.issues_for(CsvTable(rows, ",", "utf-8")))  # "Oats" has no amount
+        self.assertEqual(services.diary_importer.issues_for(table), ())  # a missing food is fixed on the review screen
 
 
 if __name__ == "__main__":

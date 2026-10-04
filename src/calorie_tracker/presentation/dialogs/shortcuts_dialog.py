@@ -43,7 +43,10 @@ SHORTCUT_GROUPS = (
         ("Enter", "Add the chosen item"),
     )),
     ("Quick add", (
-        ("Ctrl+Enter", "Review the typed entries"),
+        ("Type", "Search all foods and recipes in a row; any part of the name matches"),
+        ("Enter", "Move from food to amount to the next row (a new row is added after the last)"),
+        ("Ctrl++", "Add a new row (Ctrl+= works too)"),
+        ("Ctrl+Enter", "Review the entries"),
     )),
     ("Foods & recipes", (
         ("Ctrl+F", "Search (the search box is also focused when you open the page)"),
@@ -56,6 +59,7 @@ SHORTCUT_GROUPS = (
     ("Recipe editor", (
         ("Type", "Search ingredients; any part of the name matches"),
         ("Enter", "Add the ingredient (in the ingredient row) or save the recipe (anywhere else)"),
+        ("Enter", "After changing an amount in the table, go back to the ingredient row"),
     )),
 )
 
