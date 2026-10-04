@@ -12,7 +12,7 @@ from calorie_tracker.infrastructure.csv_headers import (
     describe_closest_header,
 )
 from calorie_tracker.infrastructure.csv_issues import CsvIssue, header_issues
-from calorie_tracker.infrastructure.csv_reading import CsvReadError, CsvTable, parse_decimal, read_csv_rows
+from calorie_tracker.infrastructure.csv_reading import CsvReadError, CsvTable, parse_decimal, read_csv_rows, read_csv_text
 from calorie_tracker.infrastructure.repositories import FoodRepository
 
 
@@ -103,6 +103,13 @@ class CsvDiaryImporter:
             return read_csv_rows(path)
         except (OSError, CsvReadError) as error:
             raise DiaryCsvFormatError(f"Could not validate this CSV file: {error}{FORMAT_GUIDANCE}") from error
+
+    def read_text(self, text: str) -> CsvTable:
+        """The same as ``read`` for CSV text that was pasted instead of chosen as a file."""
+        try:
+            return read_csv_text(text)
+        except CsvReadError as error:
+            raise DiaryCsvFormatError(f"Could not validate this CSV text: {error}{FORMAT_GUIDANCE}") from error
 
     def preview(self, path: Path | str) -> DiaryCsvPreview:
         return self.preview_table(self.read(path))

@@ -4,7 +4,7 @@ import sqlite3
 from typing import Iterator
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 BEGIN EXCLUSIVE;
@@ -60,7 +60,27 @@ CREATE TABLE IF NOT EXISTS recent_foods (
     last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_recent_foods_used ON recent_foods(last_used_at DESC);
-PRAGMA user_version = 2;
+
+CREATE TABLE IF NOT EXISTS archived_recipes (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    recipe_yield_g TEXT NOT NULL,
+    nutrients_json TEXT NOT NULL,
+    diary_entry_ids TEXT NOT NULL DEFAULT '',
+    archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_archived_recipes_name ON archived_recipes(normalized_name);
+CREATE TABLE IF NOT EXISTS archived_recipe_ingredients (
+    recipe_id TEXT NOT NULL REFERENCES archived_recipes(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    food_id TEXT NOT NULL,
+    food_name TEXT NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'g',
+    amount_g TEXT NOT NULL,
+    PRIMARY KEY (recipe_id, position)
+);
+PRAGMA user_version = 3;
 COMMIT;
 """
 
@@ -70,6 +90,44 @@ BEGIN EXCLUSIVE;
 ALTER TABLE catalogue_items ADD COLUMN basis TEXT NOT NULL DEFAULT 'g' CHECK (basis IN ('g', 'count'));
 ALTER TABLE diary_entries ADD COLUMN basis TEXT NOT NULL DEFAULT 'g' CHECK (basis IN ('g', 'count'));
 PRAGMA user_version = 2;
+COMMIT;
+"""
+
+# Version 2 -> 3: archived recipes move out of the catalogue into their own tables, so the foods they use can be
+# changed freely. The foods they used are remembered by id, name and basis so a restore can spot what changed.
+_MIGRATION_2_TO_3 = "BEGIN EXCLUSIVE;\n" + """CREATE TABLE IF NOT EXISTS archived_recipes (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    recipe_yield_g TEXT NOT NULL,
+    nutrients_json TEXT NOT NULL,
+    diary_entry_ids TEXT NOT NULL DEFAULT '',
+    archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_archived_recipes_name ON archived_recipes(normalized_name);
+CREATE TABLE IF NOT EXISTS archived_recipe_ingredients (
+    recipe_id TEXT NOT NULL REFERENCES archived_recipes(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    food_id TEXT NOT NULL,
+    food_name TEXT NOT NULL,
+    basis TEXT NOT NULL DEFAULT 'g',
+    amount_g TEXT NOT NULL,
+    PRIMARY KEY (recipe_id, position)
+);
+
+INSERT INTO archived_recipes (id, name, normalized_name, recipe_yield_g, nutrients_json, diary_entry_ids)
+    SELECT c.id, c.name, c.normalized_name, COALESCE(c.recipe_yield_g, '0'), c.nutrients_json,
+           COALESCE((SELECT group_concat(d.id, ',') FROM diary_entries d WHERE d.catalogue_item_id = c.id), '')
+    FROM catalogue_items c WHERE c.kind = 'recipe' AND c.archived = 1;
+INSERT INTO archived_recipe_ingredients (recipe_id, position, food_id, food_name, basis, amount_g)
+    SELECT ri.recipe_id, ri.position, ri.food_id, f.name, f.basis, ri.amount_g
+    FROM recipe_ingredients ri JOIN catalogue_items f ON f.id = ri.food_id
+    WHERE ri.recipe_id IN (SELECT id FROM archived_recipes);
+DELETE FROM recipe_ingredients WHERE recipe_id IN (SELECT id FROM archived_recipes);
+DELETE FROM recent_foods WHERE catalogue_item_id IN (SELECT id FROM archived_recipes);
+UPDATE diary_entries SET catalogue_item_id = NULL WHERE catalogue_item_id IN (SELECT id FROM archived_recipes);
+DELETE FROM catalogue_items WHERE id IN (SELECT id FROM archived_recipes);
+PRAGMA user_version = 3;
 COMMIT;
 """
 
@@ -89,8 +147,12 @@ class Database:
                 raise RuntimeError("Database schema is newer than this application.")
             if version == 0:
                 connection.executescript(_SCHEMA)
-            elif version == 1:
-                connection.executescript(_MIGRATION_1_TO_2)
+            else:
+                if version == 1:
+                    connection.executescript(_MIGRATION_1_TO_2)
+                    version = 2
+                if version == 2:
+                    connection.executescript(_MIGRATION_2_TO_3)
         except Exception:
             if connection.in_transaction:
                 connection.rollback()

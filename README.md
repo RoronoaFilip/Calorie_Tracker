@@ -42,9 +42,9 @@ Log what you eat, build your own food and recipe catalogue, and see how each day
 - You can drag a CSV or photo almost anywhere on the Foods page, and a CSV anywhere on the Diary page.
 - **Esc** (or **Ctrl+W**) closes any pop-up window; **Enter** saves a food/recipe or adds the chosen item.
 - **Ctrl+F** (Cmd+F on macOS) focuses the search on Foods & recipes, which is also focused when you open it. Ctrl+N adds a food, Ctrl+Shift+N a recipe.
-- **Ctrl+1…4** switch pages. On the Diary: **Alt+←/→** change day, **Ctrl+T** today, **Alt+1…4** add to a meal, **Ctrl+Shift+A** quick add.
+- **Ctrl+1…6** switch pages. On the Diary: **Alt+←/→** change day, **Ctrl+T** today, **Alt+1…4** add to a meal, **Ctrl+Shift+A** quick add.
 - Clicking or tabbing into a field selects its text, so typing replaces it.
-- **F1**, or **Settings → Keyboard shortcuts**, opens a pop-up explaining every shortcut.
+- **F1**, or the **Help** page, explains every shortcut. Ctrl+1…6 switch pages.
 
 ---
 

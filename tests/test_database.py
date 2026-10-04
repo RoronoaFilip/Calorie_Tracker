@@ -23,7 +23,7 @@ class DatabaseTests(unittest.TestCase):
     def test_initialize_creates_parent_database_and_versioned_schema(self):
         self.assertTrue(self.database_path.is_file())
         with self.database.read_connection() as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
             self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
             tables = {row[0] for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"

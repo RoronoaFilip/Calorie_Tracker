@@ -1,16 +1,21 @@
 """Quick add: a table where each row is a food, an amount and a meal. Nothing is typed as CSV."""
 
+import csv
+import io
 from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QCompleter,
     QDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QVBoxLayout,
@@ -18,7 +23,8 @@ from PySide6.QtWidgets import (
 )
 
 from calorie_tracker.application.diary import MEALS
-from calorie_tracker.application.quick_add import quick_add_rows
+from calorie_tracker.application.quick_add import QUICK_RAW_HEADER, quick_add_rows
+from calorie_tracker.infrastructure.csv_reading import CsvReadError, CsvTable, read_csv_text
 from calorie_tracker.domain.nutrition import BASIS_COUNT, BASIS_GRAMS
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.presentation.amount_input import AmountSpinBox
@@ -80,14 +86,33 @@ class QuickAddDialog(QDialog):
             self.table.setColumnWidth(column, width)
         layout.addWidget(self.table, 1)
 
+        # Raw input: paste CSV text instead of filling in the table.
+        self.raw_input = QPlainTextEdit()
+        self.raw_input.setObjectName("quickAddRawInput")
+        self.raw_input.setAccessibleName("Raw CSV text for quick add")
+        self.raw_input.setPlainText(QUICK_RAW_HEADER + "\n")
+        self.raw_input.setVisible(False)
+        self.raw_input.textChanged.connect(self._update_enabled)
+        layout.addWidget(self.raw_input, 1)
+
         self.hint = QLabel(
-            "Amounts are grams, or a number of items for foods counted per item (halves are fine)."
+            "Amounts are grams, or a number of items for foods counted per item (halves are fine). "
+            "Enter moves to the next field and adds a row at the end; Shift+Enter deletes the row; Ctrl++ adds a row; "
+            "Ctrl+Enter reviews. Use Raw input to paste CSV text instead."
         )
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet("color: #536175;")
         layout.addWidget(self.hint)
 
         actions = QHBoxLayout()
+        self.raw_toggle = QPushButton("Raw input")
+        self.raw_toggle.setObjectName("rawInputToggle")
+        self.raw_toggle.setCheckable(True)
+        self.raw_toggle.setAutoDefault(False)
+        self.raw_toggle.setAccessibleName("Switch between the table and pasting raw CSV text")
+        self.raw_toggle.setToolTip("Paste CSV text instead of using the table")
+        self.raw_toggle.toggled.connect(self._raw_toggled)
+        actions.addWidget(self.raw_toggle)
         self.add_row_button = QPushButton("+ Add row")
         self.add_row_button.setToolTip("Add a row (Ctrl++)")
         self.add_row_button.setObjectName("quickAddRowButton")
@@ -107,9 +132,16 @@ class QuickAddDialog(QDialog):
         layout.addLayout(actions)
         for keys in ("Ctrl+Return", "Ctrl+Enter"):
             QShortcut(QKeySequence(keys), self, activated=self._review)
+        # Table-only shortcuts (switched off in raw input, where Shift+Enter is just a new line).
+        self._table_shortcuts: list[QShortcut] = []
+        # Shift+Enter deletes the row you are in.
+        for keys in ("Shift+Return", "Shift+Enter"):
+            self._table_shortcuts.append(QShortcut(QKeySequence(keys), self, activated=self.delete_current_row))
         # Ctrl and "+" (on most keyboards "+" is Shift and "=", so Ctrl+= works too) add a row.
         for keys in ("Ctrl++", "Ctrl+=", "Ctrl+Shift+="):
-            QShortcut(QKeySequence(keys), self, activated=lambda: self.add_row(focus=True))
+            self._table_shortcuts.append(
+                QShortcut(QKeySequence(keys), self, activated=lambda: self.add_row(focus=True))
+            )
 
         for _ in range(_START_ROWS):
             self.add_row()
@@ -187,13 +219,30 @@ class QuickAddDialog(QDialog):
         return next((row for row in range(self.table.rowCount()) if self.food_combo(row) is box), -1)
 
     def _remove_row_of(self, box: QComboBox) -> None:
-        row = self._row_of(box)
-        if row < 0:
+        self.remove_row(self._row_of(box))
+
+    def remove_row(self, row: int, focus: bool = False) -> None:
+        if row < 0 or row >= self.table.rowCount():
             return
         self.table.removeRow(row)
         if self.table.rowCount() == 0:
             self.add_row()
         self._update_enabled()
+        if focus:
+            self.food_combo(min(row, self.table.rowCount() - 1)).setFocus()
+
+    def _row_with_focus(self) -> int:
+        widget = QApplication.focusWidget()
+        for row in range(self.table.rowCount()):
+            for column in (_FOOD, _AMOUNT, _MEAL, _REMOVE):
+                cell = self.table.cellWidget(row, column)
+                if cell is not None and (widget is cell or cell.isAncestorOf(widget)):
+                    return row
+        return -1
+
+    def delete_current_row(self) -> None:
+        """Shift+Enter: delete the row the cursor is in (the last row is replaced by an empty one)."""
+        self.remove_row(self._row_with_focus(), focus=True)
 
     def _food_changed(self, box: QComboBox) -> None:
         """Choosing a counted food switches the amount to a number of items; others use grams."""
@@ -207,8 +256,39 @@ class QuickAddDialog(QDialog):
         self._update_enabled()
 
     def _update_enabled(self) -> None:
-        if hasattr(self, "review_button"):
+        if not hasattr(self, "review_button"):
+            return
+        if self.raw_mode():
+            lines = [line for line in self.raw_input.toPlainText().splitlines() if line.strip()]
+            self.review_button.setEnabled(len(lines) > 1)  # the header alone is nothing to review
+        else:
             self.review_button.setEnabled(bool(self.entries()))
+
+    # ---- raw input -------------------------------------------------------------------------------------
+
+    def raw_mode(self) -> bool:
+        return self.raw_toggle.isChecked()
+
+    def _raw_toggled(self, raw: bool) -> None:
+        self.table.setVisible(not raw)
+        self.add_row_button.setVisible(not raw)
+        self.raw_input.setVisible(raw)
+        for shortcut in self._table_shortcuts:
+            shortcut.setEnabled(not raw)
+        if raw:
+            # Start from the header only, or from what the table already holds so nothing typed is lost.
+            entries = self.entries()
+            buffer = io.StringIO()
+            writer = csv.writer(buffer, lineterminator="\n")
+            writer.writerow(QUICK_RAW_HEADER.split(","))
+            for entry in entries:
+                writer.writerow(entry)
+            self.raw_input.setPlainText(buffer.getvalue())
+            self.raw_input.setFocus()
+            self.raw_input.moveCursor(QTextCursor.MoveOperation.End)
+        else:
+            self.food_combo(0).setFocus()
+        self._update_enabled()
 
     # ---- result ---------------------------------------------------------------------------------------
 
@@ -224,6 +304,12 @@ class QuickAddDialog(QDialog):
     def rows(self) -> list[list[str]]:
         """Header plus one [food_name, amount, meal] row per filled-in table row, ready for the diary CSV checks."""
         return quick_add_rows(self.entries())
+
+    def csv_table(self) -> CsvTable:
+        """What goes to the diary CSV import: the table converted in code, or the pasted raw CSV text."""
+        if self.raw_mode():
+            return read_csv_text(self.raw_input.toPlainText())
+        return CsvTable(self.rows(), ",", "utf-8")
 
     # ---- keyboard -------------------------------------------------------------------------------------
 
@@ -244,5 +330,12 @@ class QuickAddDialog(QDialog):
         return True
 
     def _review(self) -> None:
-        if self.review_button.isEnabled():
-            self.accept()
+        if not self.review_button.isEnabled():
+            return
+        if self.raw_mode():
+            try:
+                read_csv_text(self.raw_input.toPlainText())
+            except CsvReadError as error:
+                QMessageBox.warning(self, "Cannot read the CSV text", str(error))
+                return
+        self.accept()

@@ -1,13 +1,14 @@
 from datetime import date
 
 from PySide6.QtCore import QDate, QEvent, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen, QTextCharFormat
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QTextCharFormat
 from PySide6.QtWidgets import (
     QCalendarWidget,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
+    QStyledItemDelegate,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -15,6 +16,53 @@ from PySide6.QtWidgets import (
 
 from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.presentation.control_styles import style_calendar_arrows
+
+
+HEADER_BACKGROUND = "#a5b8d8"  # weekday names and week numbers: clearly darker than the date cells
+HEADER_TEXT = "#14213d"
+WEEKEND_RED = Qt.GlobalColor.red  # the colour Qt uses for Saturday and Sunday
+OTHER_MONTH_BACKGROUND = "#dbe3f0"  # days of the previous/next month: darker than this month's cells, lighter than the headers
+OTHER_MONTH_OPACITY = 0.5  # their numbers are drawn half transparent
+
+
+class _HeaderDelegate(QStyledItemDelegate):
+    """Paints the weekday-name row and the week-number column in a darker colour; dates are left to Qt.
+
+    The style sheet used for the rest of the app would otherwise decide the colour of these cells.
+    """
+
+    def __init__(self, inner, grid: QTableView):
+        super().__init__(grid)
+        self._inner = inner  # Qt's own delegate, which draws the dates through ``paintCell``
+        self._grid = grid
+
+    def _is_header(self, index) -> bool:
+        week_columns = self._grid.model().columnCount() - 7
+        return index.row() == 0 or index.column() < week_columns
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        if not self._is_header(index):
+            self._inner.paint(painter, option, index)
+            return
+        painter.save()
+        painter.fillRect(option.rect, QColor(HEADER_BACKGROUND))
+        foreground = index.data(Qt.ItemDataRole.ForegroundRole)
+        if isinstance(foreground, QBrush):
+            colour = foreground.color()
+        elif isinstance(foreground, QColor):
+            colour = foreground
+        else:
+            colour = QColor(HEADER_TEXT)
+        font = QFont(option.font)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(colour)
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        painter.drawText(option.rect, Qt.AlignmentFlag.AlignCenter, "" if text is None else str(text))
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        return self._inner.sizeHint(option, index)
 
 
 class DiaryCalendarWidget(QCalendarWidget):
@@ -25,17 +73,41 @@ class DiaryCalendarWidget(QCalendarWidget):
         self._hover_base_format: QTextCharFormat | None = None
         self._logged: frozenset[str] = frozenset()
         self._tracking_start: str | None = None
+        # The weekday names row and the week-number column share one "header" format: a darker colour.
+        header_format = QTextCharFormat()
+        header_format.setBackground(QColor(HEADER_BACKGROUND))
+        header_format.setForeground(QColor(HEADER_TEXT))
+        header_format.setFontWeight(700)
+        self.setHeaderTextFormat(header_format)
         if self._day_grid is not None:
+            self._header_delegate = _HeaderDelegate(self._day_grid.itemDelegate(), self._day_grid)
+            self._day_grid.setItemDelegate(self._header_delegate)
             self._day_grid.setMouseTracking(True)
             self._day_grid.viewport().setMouseTracking(True)
             self._day_grid.viewport().installEventFilter(self)
 
+    def _in_shown_month(self, day: QDate | None) -> bool:
+        return day is not None and day.month() == self.monthShown() and day.year() == self.yearShown()
+
     def eventFilter(self, watched, event) -> bool:
         if self._day_grid is not None and watched is self._day_grid.viewport():
-            if event.type() == QEvent.Type.MouseMove:
-                self._set_hovered_date(self._date_at(event.position().toPoint()))
-            elif event.type() == QEvent.Type.Leave:
+            kind = event.type()
+            if kind == QEvent.Type.MouseMove:
+                day = self._date_at(event.position().toPoint())
+                clickable = day is not None
+                self._set_hovered_date(day)
+                self._day_grid.viewport().setCursor(
+                    Qt.CursorShape.PointingHandCursor if clickable else Qt.CursorShape.ArrowCursor
+                )
+            elif kind == QEvent.Type.Leave:
                 self._set_hovered_date(None)
+            elif kind in (
+                QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease, QEvent.Type.MouseButtonDblClick,
+            ):
+                # Only dates can be clicked (this month's and the dimmed days of the neighbouring months),
+                # not the weekday names or the week numbers.
+                if self._date_at(event.position().toPoint()) is None:
+                    return True
         return super().eventFilter(watched, event)
 
     def _date_at(self, position) -> QDate | None:
@@ -107,7 +179,15 @@ class DiaryCalendarWidget(QCalendarWidget):
         painter.restore()
 
     def paintCell(self, painter: QPainter, rect, day: QDate) -> None:
-        super().paintCell(painter, rect, day)
+        if self._in_shown_month(day):
+            super().paintCell(painter, rect, day)
+        else:
+            # Days of the previous/next month: a darker shade, with the number half transparent. Still clickable.
+            painter.save()
+            painter.fillRect(rect, QColor(OTHER_MONTH_BACKGROUND))
+            painter.setOpacity(OTHER_MONTH_OPACITY)
+            super().paintCell(painter, rect, day)
+            painter.restore()
         status = self.day_status(day)
         if status is not None:
             self._draw_status(painter, rect, status)
@@ -187,9 +267,12 @@ class CalendarView(QWidget):
         marker.setForeground(QColor("#4f68c5"))
         marker.setFontWeight(600)
         marker.setFontUnderline(True)
+        weekend_marker = QTextCharFormat(marker)
+        weekend_marker.setForeground(QColor(WEEKEND_RED))  # a logged Saturday or Sunday stays red
         for value in self.populated_dates:
             parsed = date.fromisoformat(value)
-            self.calendar.setDateTextFormat(QDate(parsed.year, parsed.month, parsed.day), marker)
+            day = QDate(parsed.year, parsed.month, parsed.day)
+            self.calendar.setDateTextFormat(day, weekend_marker if day.dayOfWeek() >= 6 else marker)
 
     def _date_clicked(self, value: QDate) -> None:
         self.select_date(value.toString("yyyy-MM-dd"))

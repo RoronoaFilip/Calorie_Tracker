@@ -127,6 +127,28 @@ class CatalogueTransferTests(unittest.TestCase):
         self.assertTrue(caught.exception.issues)
 
 
+class RawTextImportTests(CatalogueTransferTests):
+    """Pasted CSV text goes through exactly the same checks as a CSV file."""
+
+    def test_food_recipe_and_diary_importers_read_pasted_text(self):
+        foods = self._other_catalogue().importer.read_text(
+            "food_name,basis,calories,protein,fat,carbohydrates\nBun,count,200,6,2,40\n"
+        )
+        self.assertEqual(len(self._other_catalogue().importer.preview_table(foods).foods), 1)
+        recipes = self.services.recipe_importer.read_text(
+            "recipe_name,yield_g,ingredient,amount\nPasted,150,Oats,50\n"
+        )
+        self.assertEqual(self.services.recipe_importer.preview_table(recipes).items[0].status, STATUS_READY)
+        diary = self.services.diary_importer.read_text("food_name,amount/count,meal\nEgg,0.5,Lunch\n")
+        row = self.services.diary_importer.preview_table(diary).rows[0]
+        self.assertTrue(row.is_importable)
+        self.assertEqual((row.basis, row.amount_g), ("count", Decimal("0.5")))
+
+    def test_pasted_text_with_a_different_delimiter_is_detected(self):
+        table = self.services.diary_importer.read_text("food_name;amount;meal\nOats;45;Lunch\n")
+        self.assertEqual(table.delimiter, ";")
+
+
 class QuickAddTests(unittest.TestCase):
     def test_table_rows_become_csv_rows_and_blank_foods_are_dropped(self):
         rows = quick_add_rows([
@@ -159,3 +181,34 @@ class QuickAddTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TargetDriftTests(unittest.TestCase):
+    def test_default_drift_only_accepts_exactly_100_percent(self):
+        from calorie_tracker.application.targets import DEFAULT_DRIFT, is_on_track, percent_of_target
+        self.assertEqual(DEFAULT_DRIFT, (100, 100))
+        self.assertEqual(percent_of_target(Decimal("1999"), Decimal("2000")), 100)  # rounds to a whole percent
+        self.assertTrue(is_on_track(100, DEFAULT_DRIFT))
+        self.assertFalse(is_on_track(99, DEFAULT_DRIFT))
+        self.assertFalse(is_on_track(101, DEFAULT_DRIFT))
+
+    def test_custom_range_and_over_100(self):
+        from calorie_tracker.application.targets import is_on_track, normalize_drift, percent_of_target
+        drift = normalize_drift(85, 110)
+        self.assertTrue(is_on_track(85, drift) and is_on_track(110, drift))
+        self.assertFalse(is_on_track(84, drift) or is_on_track(111, drift))
+        self.assertEqual(percent_of_target(Decimal("3000"), Decimal("2000")), 150)
+        self.assertEqual(normalize_drift(110, 85), (85, 110))  # wrong way round
+        self.assertEqual(normalize_drift(85, None), (85, 100))  # missing upper bound is 100
+        self.assertEqual(normalize_drift(None, None), (100, 100))
+
+    def test_load_drift_defaults_when_nothing_or_garbage_is_saved(self):
+        from calorie_tracker.application.targets import load_drift
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        services = build_services(Path(temp.name) / "data" / "tracker.sqlite3")
+        self.addCleanup(lambda: [h.close() for h in logging.getLogger("calorie_tracker").handlers[:]])
+        self.assertEqual(load_drift(services.settings, "calories"), (100, 100))
+        services.settings.set_json("target_drift", {"calories": [85, 110], "fat": "oops"})
+        self.assertEqual(load_drift(services.settings, "calories"), (85, 110))
+        self.assertEqual(load_drift(services.settings, "fat"), (100, 100))

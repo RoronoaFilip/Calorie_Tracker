@@ -52,13 +52,14 @@ class RecipeDialog(QDialog):
     """
 
     def __init__(self, catalogue: CatalogueService, foods: FoodRepository,
-                 parent=None, recipe: RecipeRecord | None = None):
+                 parent=None, recipe: RecipeRecord | None = None, *,
+                 title: str | None = None, confirm_text: str | None = None):
         super().__init__(parent)
         self.catalogue = catalogue
         self.foods = foods
         self.recipe_id = recipe.id if recipe else str(uuid.uuid4())
         self.ingredients: list[RecipeIngredient] = list(recipe.draft.ingredients) if recipe else []
-        self.setWindowTitle("Edit recipe" if recipe else "Create recipe")
+        self.setWindowTitle(title or ("Edit recipe" if recipe else "Create recipe"))
         self.resize(720, 640)
         outer = QVBoxLayout(self)
         form = QFormLayout()
@@ -154,6 +155,8 @@ class RecipeDialog(QDialog):
         self.save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
         self.save_button.setObjectName("primaryButton")
         self.save_button.setAccessibleName("Save recipe")
+        if confirm_text:
+            self.save_button.setText(confirm_text)
         self.save_button.setDefault(True)
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)

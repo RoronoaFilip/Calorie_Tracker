@@ -10,6 +10,8 @@ from collections.abc import Iterable
 from decimal import Decimal
 
 QUICK_ADD_HEADER = ["food_name", "grams_eaten", "meal"]
+# The header shown first in the raw input: the amount is grams, or a count for per-item foods.
+QUICK_RAW_HEADER = "food_name,amount/count,meal"
 
 
 def format_quick_amount(amount: Decimal | float | str) -> str:

@@ -7,7 +7,7 @@ from calorie_tracker.domain.nutrition import BASIS_COUNT, BASIS_GRAMS, Nutrients
 from calorie_tracker.domain.recipes import Food
 from .csv_headers import FOOD_FIELD_ALIASES, ColumnMatch, analyze_headers, describe_closest_header, normalize_header
 from .csv_issues import CsvIssue, cell_text, header_issues
-from .csv_reading import CsvReadError, CsvTable, parse_decimal, read_csv_rows
+from .csv_reading import read_csv_text, CsvReadError, CsvTable, parse_decimal, read_csv_rows
 from .repositories import FoodRepository
 from .source_map import EXCLUDED_ICE_CREAM_NAMES
 
@@ -119,6 +119,13 @@ class CsvFoodImporter:
     def read(self, path: Path | str) -> CsvTable:
         try:
             return read_csv_rows(path)
+        except CsvReadError as error:
+            raise ImportFormatError(f"{error}. {FOOD_CSV_FORMAT_GUIDANCE}") from error
+
+    def read_text(self, text: str) -> CsvTable:
+        """The same as ``read`` for CSV text that was pasted instead of chosen as a file."""
+        try:
+            return read_csv_text(text)
         except CsvReadError as error:
             raise ImportFormatError(f"{error}. {FOOD_CSV_FORMAT_GUIDANCE}") from error
 

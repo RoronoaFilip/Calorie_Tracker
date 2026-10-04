@@ -175,7 +175,7 @@ class MigrationTests(unittest.TestCase):
         database = Database(path)
         database.initialize()
         with database.read_connection() as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
             self.assertEqual(connection.execute("SELECT basis FROM catalogue_items").fetchone()[0], "g")
             self.assertEqual(connection.execute("SELECT basis, amount_g FROM diary_entries").fetchone()[:], ("g", "50"))
         database.initialize()  # running it again is harmless

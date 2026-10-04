@@ -1,5 +1,5 @@
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -16,18 +16,24 @@ from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.presentation.views.foods_view import FoodsView
 from calorie_tracker.presentation.views.diary_view import DiaryView
 from calorie_tracker.presentation.views.calendar_view import CalendarView
+from calorie_tracker.presentation.views.data_view import DataView
+from calorie_tracker.presentation.views.help_view import HelpView
 from calorie_tracker.presentation.views.settings_view import SettingsView
 from calorie_tracker.presentation.app_icon import load_app_icon
 from calorie_tracker.presentation.control_styles import install_pointing_cursors
 
 
 class MainWindow(QMainWindow):
+    # (page key, icon, tooltip). "database" and "help" are drawn as vector icons; the others are symbols.
     NAV_ITEMS = (
         ("Diary", "◷", "Log food and review today's nutrition"),
         ("Calendar", "▦", "Browse diary history by date"),
         ("Foods", "◉", "Search and manage foods and recipes"),
+        ("Data", "database", "Back up, export and import your diary, foods and recipes"),
         ("Settings", "⚙", "Set personal macro targets and preferences"),
+        ("Help", "help", "Keyboard shortcuts and how to use the app"),
     )
+    NAV_LABELS = {"Data": "Manage your data"}  # page key -> text on the button, when it differs
 
     def __init__(self, services: ApplicationServices):
         super().__init__()
@@ -66,11 +72,12 @@ class MainWindow(QMainWindow):
         rail_layout.addSpacing(22)
 
         for label, icon, tooltip in self.NAV_ITEMS:
-            button = QPushButton(label)
+            button = QPushButton(self.NAV_LABELS.get(label, label))
             button.setIcon(self._navigation_icon(icon))
             button.setIconSize(QSize(28, 28))
             button.setObjectName(f"nav{label}")
-            button.setAccessibleName(label)
+            button.setProperty("navButton", True)  # styled as a navigation entry whatever the page is called
+            button.setAccessibleName(self.NAV_LABELS.get(label, label))
             button.setToolTip(tooltip)
             button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             button.setCheckable(True)
@@ -89,8 +96,12 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self.calendar_view)
         self.foods_view = FoodsView(self.services, self.notify)
         self._stack.addWidget(self.foods_view)
+        self.data_view = DataView(self.services, self.notify)
+        self._stack.addWidget(self.data_view)
         self.settings_view = SettingsView(self.services, self.notify)
         self._stack.addWidget(self.settings_view)
+        self.help_view = HelpView()
+        self._stack.addWidget(self.help_view)
         for index, (label, _, _) in enumerate(self.NAV_ITEMS):
             self._view_indexes[label] = index
 
@@ -121,16 +132,13 @@ class MainWindow(QMainWindow):
             QPushButton#previousDayButton, QPushButton#nextDayButton {
                 min-width: 44px; max-width: 44px; min-height: 42px; max-height: 42px;
                 padding: 4px; text-align: center; font-size: 22px; font-weight: 600; }
-            QPushButton#navDiary, QPushButton#navCalendar, QPushButton#navFoods, QPushButton#navSettings {
+            QPushButton[navButton="true"] {
                 background: transparent; color: #d6e0ef; border: 2px solid transparent;
                 text-align: left; padding: 12px 13px; font-weight: 400; }
-            QPushButton#navDiary:hover, QPushButton#navCalendar:hover, QPushButton#navFoods:hover,
-            QPushButton#navSettings:hover { background: #344965; color: #ffffff; }
-            QPushButton#navDiary:checked, QPushButton#navCalendar:checked, QPushButton#navFoods:checked,
-            QPushButton#navSettings:checked { background: #506da4; color: #ffffff; font-weight: 600;
-                                              border-left: 3px solid #b9d0ff; }
-            QPushButton#navDiary:focus, QPushButton#navCalendar:focus, QPushButton#navFoods:focus,
-            QPushButton#navSettings:focus { border-top: 2px solid #91abd8;
+            QPushButton[navButton="true"]:hover { background: #344965; color: #ffffff; }
+            QPushButton[navButton="true"]:checked { background: #506da4; color: #ffffff; font-weight: 600;
+                                                    border-left: 3px solid #b9d0ff; }
+            QPushButton[navButton="true"]:focus { border-top: 2px solid #91abd8;
                 border-right: 2px solid #91abd8; border-bottom: 2px solid #91abd8; }
             QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox, QDateEdit, QTableWidget, QListWidget {
                 background: #f1f5fb; color: #243041; border: 1px solid #c2cede;
@@ -209,8 +217,9 @@ class MainWindow(QMainWindow):
                 background: #e6edff; color: #2c46a3; border: 1px solid #6f8be0; font-weight: 600; }
             QPushButton#importDiaryCsvButton:hover, QPushButton#importFoodCsvButton:hover,
             QPushButton#choosePhotoButton:hover { background: #d5e1ff; border-color: #4f68c5; }
-            QPushButton#undoButton { background: #fff3d0; color: #7a5200; border: 1px solid #e0b64e; }
-            QPushButton#undoButton:hover { background: #ffe9ab; }
+            QPushButton#undoButton { background: #f4dde1; color: #7a3340; border: 1px solid #d3a2ab;
+                                     padding-bottom: 12px; }
+            QPushButton#undoButton:hover { background: #efcdd3; }
             QPushButton#addFoodButton { background: transparent; color: #34508f;
                                        border: 1px dashed #7f93b8; text-align: left; }
             QPushButton#addFoodButton:hover { background: #ffffff; border: 1px solid #5f7fc0; }
@@ -256,10 +265,28 @@ class MainWindow(QMainWindow):
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QColor("#d6e0ef"))
-        font = QFont("Segoe UI Symbol", 20)
-        painter.setFont(font)
-        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, glyph)
+        colour = QColor("#d6e0ef")
+        if glyph == "database":
+            # A stack of disks: the usual "data" symbol.
+            pen = QPen(colour, 2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QRectF(6, 4, 20, 8))
+            for top in (8, 14, 20):
+                painter.drawArc(QRectF(6, top, 20, 8), 180 * 16, 180 * 16)
+            painter.drawLine(6, 8, 6, 24)
+            painter.drawLine(26, 8, 26, 24)
+        elif glyph == "help":
+            # A question mark in a circle.
+            painter.setPen(QPen(colour, 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QRectF(4, 4, 24, 24))
+            painter.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+            painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "?")
+        else:
+            painter.setPen(colour)
+            painter.setFont(QFont("Segoe UI Symbol", 20))
+            painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, glyph)
         painter.end()
         return QIcon(pixmap)
 
@@ -279,7 +306,7 @@ class MainWindow(QMainWindow):
         return page
 
     def _install_navigation_shortcuts(self) -> None:
-        """Ctrl+1…4 (Cmd on macOS) jump to Diary, Calendar, Foods and Settings."""
+        """Ctrl+1…6 (Cmd on macOS) jump to the pages in the navigation; F1 opens Help."""
         self._navigation_shortcuts = []
         for number, (label, _icon, _tip) in enumerate(self.NAV_ITEMS, start=1):
             shortcut = QShortcut(QKeySequence(f"Ctrl+{number}"), self)
@@ -289,8 +316,9 @@ class MainWindow(QMainWindow):
             self._nav_buttons[label].setToolTip(f"{_tip} (Ctrl+{number})")
         help_shortcut = QShortcut(QKeySequence("F1"), self)
         help_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
-        help_shortcut.activated.connect(lambda: self.settings_view.show_shortcuts())
+        help_shortcut.activated.connect(lambda: self._select_view("Help"))
         self._navigation_shortcuts.append(help_shortcut)
+        self._help_shortcut = help_shortcut
 
     def _select_view(self, page: str) -> None:
         self._stack.setCurrentIndex(self._view_indexes[page])
@@ -310,6 +338,7 @@ class MainWindow(QMainWindow):
         self.diary_view.refresh()
         self.calendar_view.refresh()
         self.foods_view.refresh()
+        self.settings_view.reload_targets()
 
     def notify(self, message: str, timeout_ms: int = 3500) -> None:
         self.statusBar().showMessage(message, timeout_ms)

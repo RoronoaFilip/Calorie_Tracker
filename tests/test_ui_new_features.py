@@ -162,6 +162,21 @@ class NewFeatureUiTests(unittest.TestCase):
         self.assertEqual(dialog.row_count(), start + 1)
         dialog.close()
 
+    def test_quick_add_shift_enter_deletes_the_current_row_and_ctrl_enter_submits(self):
+        dialog = QuickAddDialog(self.services, "2026-10-04")
+        dialog.show()
+        self.application.processEvents()
+        start = dialog.row_count()
+        dialog.food_combo(1).lineEdit().setText("Oats")
+        dialog.food_combo(1).setFocus()
+        self.application.processEvents()
+        QTest.keyClick(dialog.food_combo(1).lineEdit(), Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(dialog.row_count(), start - 1)
+        self.assertEqual(dialog.entries(), [])
+        dialog.food_combo(0).lineEdit().setText("Oats")
+        QTest.keyClick(dialog.food_combo(0).lineEdit(), Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(dialog.result(), QuickAddDialog.DialogCode.Accepted)
+
     def test_escape_still_works_from_a_widget_placed_in_a_table_cell(self):
         dialog = QuickAddDialog(self.services, "2026-10-04")
         dialog.show()
@@ -169,33 +184,158 @@ class NewFeatureUiTests(unittest.TestCase):
         QTest.keyClick(dialog.food_combo(0).lineEdit(), Qt.Key.Key_Escape)
         self.assertFalse(dialog.isVisible())
 
-    def test_settings_button_opens_the_shortcuts_popup_which_escape_closes(self):
-        from unittest.mock import patch
-        from calorie_tracker.presentation.dialogs.shortcuts_dialog import SHORTCUT_GROUPS, ShortcutsDialog
-        self.assertTrue(self.window.settings_view.shortcuts_button.isEnabled())
-        with patch("calorie_tracker.presentation.views.settings_view.ShortcutsDialog.exec") as opened:
-            self.window.settings_view.shortcuts_button.click()
-        opened.assert_called_once()
-        dialog = ShortcutsDialog(self.window)
-        dialog.show()
+    def test_help_page_lists_the_shortcuts_and_f1_opens_it(self):
+        from calorie_tracker.presentation.shortcuts_content import SHORTCUT_GROUPS
+        self.window.show()
+        self.assertEqual(self.window._help_shortcut.key().toString(), "F1")
+        self.window._help_shortcut.activated.emit()  # what pressing F1 does
         self.application.processEvents()
-        label = dialog.findChild(QLabel, "shortcutsText")
+        self.assertIs(self.window._stack.currentWidget(), self.window.help_view)
         for title, _entries in SHORTCUT_GROUPS:
-            if title == 'Foods & recipes':
-                title = "Foods &amp; recipes"
-            self.assertIn(title, label.text())
-        QTest.keyClick(dialog, Qt.Key.Key_Escape)
-        self.assertFalse(dialog.isVisible())
+            self.assertIn(title, self.window.help_view.shortcuts_label.text())
 
-    def test_settings_page_scrolls_instead_of_squeezing_its_cards(self):
+    def test_navigation_has_manage_data_above_settings_and_help_below_it(self):
+        keys = [key for key, _icon, _tip in self.window.NAV_ITEMS]
+        self.assertEqual(keys, ["Diary", "Calendar", "Foods", "Data", "Settings", "Help"])
+        self.assertEqual(self.window._nav_buttons["Data"].text(), "Manage your data")
+        self.assertFalse(self.window._nav_buttons["Data"].icon().isNull())
+        self.assertFalse(self.window._nav_buttons["Help"].icon().isNull())
+        self.window._select_view("Data")
+        self.assertIs(self.window._stack.currentWidget(), self.window.data_view)
+        # the backup/export cards moved off the Settings page
+        self.assertFalse(hasattr(self.window.settings_view, "export_foods_button"))
+        self.assertTrue(hasattr(self.window.data_view, "export_foods_button"))
+
+    def test_new_navigation_entries_use_the_same_style_as_the_old_ones(self):
+        sheet = self.window.styleSheet()
+        self.assertIn('QPushButton[navButton="true"]:checked', sheet)
+        for key, button in self.window._nav_buttons.items():
+            self.assertTrue(button.property("navButton"), key)
+
+    def test_settings_autosave_without_a_button_and_empty_means_not_set(self):
+        settings = self.window.settings_view
+        self.assertFalse(any(button.text() == "Save targets" for button in settings.findChildren(type(self.window._nav_buttons["Data"]))))
+        settings.target_inputs["calories"].setText("2000")
+        settings.drift_low_inputs["calories"].setText("85")
+        settings.drift_high_inputs["calories"].setText("110")
+        settings._save_timer.timeout.emit()  # what the 400 ms timer does
+        self.assertEqual(self.services.settings.get_json("daily_targets"), {"calories": 2000.0})
+        self.assertEqual(self.services.settings.get_json("target_drift"), {"calories": [85, 110]})
+        settings.target_inputs["calories"].setText("")
+        settings._save_timer.timeout.emit()
+        self.assertEqual(self.services.settings.get_json("daily_targets"), {})
+        self.assertIn("Acceptable drift", settings.findChild(QLabel, "driftExplanation").text())
+
+    def test_percent_is_green_only_inside_the_acceptable_drift(self):
+        settings = self.window.settings_view
+        settings.set_target("calories", 200)
+        settings.save_targets()
+        self.services.diary.add_item("2026-10-01", "Breakfast", "oats", Decimal("50"))  # 190 kcal = 95%
+        diary = self.window.diary_view
+        diary.set_date("2026-10-01")
+        label = diary.macro_percents["calories"]
+        self.assertEqual(label.text(), "95%")
+        self.assertIn("#b23b45", label.styleSheet())  # default: only 100% is green
+        settings.drift_low_inputs["calories"].setText("90")
+        settings.drift_high_inputs["calories"].setText("110")
+        settings.save_targets()
+        self.assertIn("#2f7a4d", label.styleSheet())
+
+    def test_diary_shows_percent_of_target_which_can_exceed_100(self):
+        self.window.settings_view.set_target("calories", 100)
+        self.window.settings_view.save_targets()
+        self.services.diary.add_item("2026-10-01", "Breakfast", "oats", Decimal("50"))  # 190 kcal
+        self.window.diary_view.set_date("2026-10-01")
+        self.assertEqual(self.window.diary_view.macro_percents["calories"].text(), "190%")
+        self.assertEqual(self.window.diary_view.macro_percents["protein"].text(), "")  # no protein target
+
+    def test_calendar_dims_other_months_but_keeps_them_clickable_and_headers_not(self):
+        from PySide6.QtCore import QDate
+        from calorie_tracker.presentation.views.calendar_view import OTHER_MONTH_BACKGROUND, OTHER_MONTH_OPACITY
+        calendar = self.window.calendar_view.calendar
+        calendar.setCurrentPage(2026, 10)  # 1 October 2026 is a Thursday
+        self.window.calendar_view.show()
+        self.application.processEvents()
+        self.assertFalse(calendar._in_shown_month(QDate(2026, 9, 30)))
+        self.assertTrue(calendar._in_shown_month(QDate(2026, 10, 1)))
+        view = calendar._day_grid
+        # The Monday before 1 October is 28 September: a real, clickable date, drawn dimmed.
+        first_row_monday = view.visualRect(view.model().index(1, 1)).center()
+        self.assertEqual(calendar._date_at(first_row_monday), QDate(2026, 9, 28))
+        header_cell = view.visualRect(view.model().index(0, 1)).center()
+        week_number = view.visualRect(view.model().index(1, 0)).center()
+        self.assertIsNone(calendar._date_at(header_cell))  # weekday names are not dates
+        self.assertIsNone(calendar._date_at(week_number))  # neither are week numbers
+        self.assertLess(OTHER_MONTH_OPACITY, 1)
+        self.assertNotEqual(OTHER_MONTH_BACKGROUND, "#a5b8d8")  # a different shade than the headers
+        from calorie_tracker.presentation.views.calendar_view import HEADER_BACKGROUND
+        self.assertEqual(calendar.headerTextFormat().background().color().name(), HEADER_BACKGROUND)
+
+    def test_foods_list_loads_pages_filters_and_restores_archived_recipes(self):
+        for number in range(40):
+            self.services.foods.save(Food(f"x{number:02d}", f"Zed {number:02d}", Nutrients(calories=Decimal(number))))
+        view = self.window.foods_view
+        self.window.show()
+        view.refresh()
+        self.application.processEvents()
+        loaded = view.items.count()
+        self.assertGreaterEqual(loaded, 15)
+        self.assertLess(loaded, 43)  # not everything at once
+        bar = view.items.verticalScrollBar()
+        bar.setValue(bar.maximum())
+        self.application.processEvents()
+        self.assertGreater(view.items.count(), loaded)
+        view.kind_filter.setCurrentIndex(view.kind_filter.findData("recipe"))
+        self.assertEqual(view.items.count(), 0)  # no recipes yet
+        view.kind_filter.setCurrentIndex(0)
+        self.services.catalogue.save_recipe("r1", RecipeDraft("Zed bowl", Decimal("100"), (
+            RecipeIngredient(self.services.foods.get("oats"), Decimal("100")),
+        )))
+        self.services.recipes.archive("r1")
+        view.archived_button.setChecked(True)
+        self.assertEqual(view.items.count(), 1)
+        view._restore_item("recipe", "r1")  # unchanged ingredients: restored straight away
+        self.assertIsNotNone(self.services.recipes.get("r1"))
+
+    def test_quick_add_raw_input_starts_with_only_the_header_and_feeds_the_import(self):
+        dialog = QuickAddDialog(self.services, "2026-10-04")
+        self.addCleanup(dialog.close)
+        dialog.raw_toggle.setChecked(True)
+        self.assertEqual(dialog.raw_input.toPlainText().strip(), "food_name,amount/count,meal")
+        self.assertFalse(dialog.review_button.isEnabled())
+        dialog.raw_input.setPlainText("food_name,amount/count,meal\nOats,50,Lunch\nLarge egg,0.5,Dinner\n")
+        self.assertTrue(dialog.review_button.isEnabled())
+        preview = self.services.diary_importer.preview_table(dialog.csv_table())
+        self.assertTrue(all(row.is_importable for row in preview.rows))
+        self.assertEqual(preview.rows[1].basis, "count")
+
+    def test_settings_and_data_pages_scroll_instead_of_squeezing_their_cards(self):
         self.window.resize(1040, 680)
         self.window.show()
-        self.window._select_view("Settings")
-        self.application.processEvents()
-        scroll = self.window.settings_view.scroll_area
-        self.assertTrue(scroll.widgetResizable())
-        self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
+        for page, view in (("Settings", self.window.settings_view), ("Data", self.window.data_view)):
+            self.window._select_view(page)
+            view.scroll_area.setFixedHeight(120)  # smaller than the content, whatever the screen
+            self.application.processEvents()
+            self.assertTrue(view.scroll_area.widgetResizable(), page)
+            self.assertGreater(view.scroll_area.verticalScrollBar().maximum(), 0, page)
         self.assertIn("QScrollBar::handle:vertical", self.window.styleSheet())
+
+    def test_undo_button_sits_next_to_the_meal_add_button_and_its_line_winds_down(self):
+        diary = self.window.diary_view
+        self.window.show()
+        entry = self.services.diary.add_item(diary.selected_date, "Lunch", "oats", Decimal("50"))
+        diary.refresh()
+        diary.delete_entry(entry.id, confirmed=True)
+        row = diary.meal_add_rows["Lunch"]
+        self.assertGreaterEqual(row.indexOf(diary.undo_button), 0)
+        self.assertEqual(diary.meal_add_rows["Breakfast"].indexOf(diary.undo_button), -1)
+        self.assertTrue(diary.undo_button.isVisible())
+        self.assertEqual(diary.undo_button.countdown_fraction, 1.0)
+        QTest.qWait(250)
+        self.assertLess(diary.undo_button.countdown_fraction, 1.0)
+        diary.undo_delete()
+        self.assertFalse(diary.undo_button.isVisible())
+        self.assertEqual(len(self.services.diary.entries_for_day(diary.selected_date)), 1)
 
 
 if __name__ == "__main__":

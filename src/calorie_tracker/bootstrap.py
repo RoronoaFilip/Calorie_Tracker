@@ -14,6 +14,7 @@ from .infrastructure.open_food_facts import OpenFoodFactsLookup
 from .infrastructure.importer import CsvFoodImporter
 from .infrastructure.diary_csv_importer import CsvDiaryImporter
 from .infrastructure.recipe_csv_importer import CsvRecipeImporter
+from .infrastructure.catalogue_query import CatalogueQuery
 from .infrastructure.repositories import (
     DiaryRepository,
     FoodRepository,
@@ -36,6 +37,7 @@ class ApplicationServices:
     backup: BackupService
     product_import: ProductImportService
     recipe_importer: CsvRecipeImporter
+    catalogue_query: CatalogueQuery
 
 
 def _configure_logging(data_dir: Path) -> None:
@@ -95,6 +97,7 @@ def build_services(
         importer, diary_importer, backup,
         ProductImportService(barcode_reader or ZxingBarcodeReader(), product_lookup or OpenFoodFactsLookup()),
         CsvRecipeImporter(foods, recipes),
+        CatalogueQuery(database),
     )
 
 

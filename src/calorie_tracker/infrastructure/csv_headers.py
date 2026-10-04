@@ -38,7 +38,10 @@ RECIPE_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
     "ingredient": (
         "ingredient", "ingredient name", "ingredient_name", "food", "food name", "food_name", "item",
     ),
-    "amount": ("amount", "amount_g", "amount (g)", "quantity", "qty", "grams", "grams_eaten", "weight"),
+    "amount": (
+        "amount", "amount_g", "amount (g)", "quantity", "qty", "grams", "grams_eaten", "weight",
+        "amount/count", "amount_or_count", "count",
+    ),
     "yield_g": ("yield_g", "yield", "final yield", "yield (g)", "total weight", "final weight"),
 }
 
@@ -46,7 +49,7 @@ DIARY_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
     "food_name": FOOD_FIELD_ALIASES["food_name"],
     "amount_g": (
         "grams_eaten", "grams eaten", "grams", "gram", "g", "amount", "amount_g", "amount (g)",
-        "quantity", "weight", "grams_eaten (all meals)",
+        "quantity", "weight", "grams_eaten (all meals)", "amount/count", "amount_or_count", "count",
     ),
     "meal": ("meal", "time", "meal_time", "meal time", "meal type"),
 }

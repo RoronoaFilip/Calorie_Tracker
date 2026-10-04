@@ -1,8 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
-from PySide6.QtCore import QDate, QTimer, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QDate, QElapsedTimer, QTimer, Qt
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
@@ -22,6 +22,7 @@ from calorie_tracker.bootstrap import ApplicationServices
 from calorie_tracker.domain.diary import DiaryEntry
 from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.application.diary import MEALS
+from calorie_tracker.application.targets import is_on_track, load_drift, percent_of_target
 from calorie_tracker.domain.nutrition import BASIS_GRAMS
 from calorie_tracker.infrastructure.csv_reading import CsvTable
 from calorie_tracker.presentation.amount_input import AmountSpinBox
@@ -36,6 +37,41 @@ from calorie_tracker.presentation.dialogs.meal_split_dialog import MealSplitDial
 from calorie_tracker.domain.diary import MealPortion
 from calorie_tracker.presentation.csv_drop import CsvDropMixin
 from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
+
+
+UNDO_MS = 5000  # how long a deleted entry can be brought back
+UNDO_LINE_COLOUR = "#b85c6b"
+
+
+class CountdownButton(QPushButton):
+    """A button with a thin line along its bottom edge that winds down from full to empty, like the target bars."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(text, parent)
+        self.countdown_fraction = 0.0  # 1.0 = full line, 0.0 = no line
+
+    def set_countdown(self, fraction: float) -> None:
+        self.countdown_fraction = max(0.0, min(1.0, fraction))
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self.countdown_fraction <= 0:
+            return
+        margin = 12
+        width = max(0.0, (self.width() - 2 * margin) * self.countdown_fraction)
+        y = self.height() - 7
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        track = QPen(QColor("#e8cdd2"), 3)
+        track.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(track)
+        painter.drawLine(margin, y, self.width() - margin, y)
+        line = QPen(QColor(UNDO_LINE_COLOUR), 3)
+        line.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(line)
+        painter.drawLine(margin, y, int(margin + width), y)
+        painter.end()
 
 
 class DiaryView(CsvDropMixin, QWidget):
@@ -97,19 +133,25 @@ class DiaryView(CsvDropMixin, QWidget):
         )
         self.quick_add_button.clicked.connect(self.open_quick_add)
         header.addWidget(self.quick_add_button)
-        self.undo_button = QPushButton("Undo delete")
+        # The undo button appears next to the "Add food" button of the meal the entry was deleted from.
+        self.undo_button = CountdownButton("Undo delete")
         self.undo_button.setObjectName("undoButton")
         self.undo_button.setToolTip("Restore the diary entry you just deleted")
         self.undo_button.setVisible(False)
         self.undo_button.clicked.connect(self.undo_delete)
+        self.meal_add_rows: dict[str, QHBoxLayout] = {}
         self._undo_timer = QTimer(self)
         self._undo_timer.setSingleShot(True)
-        self._undo_timer.setInterval(5000)
+        self._undo_timer.setInterval(UNDO_MS)
         self._undo_timer.timeout.connect(self._expire_undo)
-        header.addWidget(self.undo_button)
+        self._undo_clock = QElapsedTimer()
+        self._undo_tick = QTimer(self)
+        self._undo_tick.setInterval(40)
+        self._undo_tick.timeout.connect(self._update_undo_line)
         root.addLayout(header)
 
         self.macro_cards: dict[str, tuple[QLabel, QProgressBar]] = {}
+        self.macro_percents: dict[str, QLabel] = {}
         card_row = QHBoxLayout()
         card_colors = {
             "calories": ("#fff0d8", "#eed8b5"),
@@ -139,11 +181,22 @@ class DiaryView(CsvDropMixin, QWidget):
             bar.setTextVisible(False)
             bar.setFixedHeight(6)
             bar.setAccessibleName(f"{caption} target progress")
+            percent = QLabel("")
+            percent.setObjectName(f"percent{key.title()}")
+            percent.setAccessibleName(f"{caption} share of the daily target")
+            percent.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            percent.setStyleSheet("font-size: 18px; font-weight: 650; color: #536175;")
+            value_row = QHBoxLayout()
+            value_row.setContentsMargins(0, 0, 0, 0)
+            value_row.addWidget(value)
+            value_row.addStretch(1)
+            value_row.addWidget(percent)
             card_layout.addWidget(label)
-            card_layout.addWidget(value)
+            card_layout.addLayout(value_row)
             card_layout.addWidget(bar)
             card_row.addWidget(card)
             self.macro_cards[key] = value, bar
+            self.macro_percents[key] = percent
         root.addLayout(card_row)
         self.day_total_label = self.macro_cards["calories"][0]
 
@@ -196,7 +249,12 @@ class DiaryView(CsvDropMixin, QWidget):
             add.setStyleSheet("font-size: 16px;")
             add.setToolTip(f"Search foods and recipes for {meal}")
             add.clicked.connect(lambda checked=False, category=meal: self.open_add_dialog(category))
-            panel_layout.addWidget(add, alignment=Qt.AlignmentFlag.AlignLeft)
+            add_row = QHBoxLayout()
+            add_row.setSpacing(10)
+            add_row.addWidget(add)
+            add_row.addStretch(1)
+            panel_layout.addLayout(add_row)
+            self.meal_add_rows[meal] = add_row
             self.meal_layout.addWidget(panel)
             self.meal_panels[meal] = panel
             self.meal_entries[meal] = entries
@@ -255,8 +313,7 @@ class DiaryView(CsvDropMixin, QWidget):
         dialog = QuickAddDialog(self.services, self.selected_date, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        table = CsvTable(dialog.rows(), ",", "utf-8")
-        self._review_table(table, quick=True)
+        self._review_table(dialog.csv_table(), quick=True)
 
     def add_catalogue_item(self, meal: str, item_id: str, amount_g: Decimal) -> DiaryEntry:
         entry = self.services.diary.add_item(self.selected_date, meal, item_id, amount_g)
@@ -271,8 +328,12 @@ class DiaryView(CsvDropMixin, QWidget):
             "food_name, grams_eaten, meal  (column order and common alternative names are fine)",
             "Oats,45.5,Breakfast",
             self,
+            raw_header="food_name,amount/count,meal",
         )
         if help_dialog.exec() != CsvImportHelpDialog.DialogCode.Accepted:
+            return
+        if help_dialog.pasted_text:
+            self.import_diary_csv_text(help_dialog.pasted_text)
             return
         filename = getattr(help_dialog, "dropped_path", None)
         if not filename:
@@ -285,6 +346,15 @@ class DiaryView(CsvDropMixin, QWidget):
     def handle_dropped_csv(self, path: str) -> None:
         """A .csv dropped on the Diary page goes straight to the review screen."""
         self.import_diary_csv(path)
+
+    def import_diary_csv_text(self, text: str) -> None:
+        """Import diary rows from CSV text that was pasted instead of chosen as a file."""
+        try:
+            table = self.services.diary_importer.read_text(text)
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, "CSV validation failed", str(error))
+            return
+        self._review_table(table)
 
     def import_diary_csv(self, filename: str) -> None:
         try:
@@ -350,6 +420,25 @@ class DiaryView(CsvDropMixin, QWidget):
             target = self._target_value(key)
             bar.setValue(min(100, int(nutrient * 100 / target)) if target else 0)
             bar.setToolTip(f"{names[key]} target: {target:g} {unit}" if target else "No daily target set")
+            percent = self.macro_percents[key]
+            if target:
+                share = percent_of_target(nutrient, target)  # may be above 100 when the target is exceeded
+                drift = load_drift(self.services.settings, key)
+                on_track = is_on_track(share, drift)
+                percent.setText(f"{share}%")
+                percent.setProperty("onTrack", on_track)
+                percent.setStyleSheet(
+                    "font-size: 18px; font-weight: 650; color: " + ("#2f7a4d;" if on_track else "#b23b45;")
+                )
+                low, high = drift
+                range_text = f"{low}%" if low == high else f"{low}% to {high}%"
+                percent.setToolTip(
+                    f"{share}% of the {names[key].lower()} target ({target:g} {unit}). "
+                    f"Acceptable drift: {range_text}."
+                )
+            else:
+                percent.setText("")
+                percent.setToolTip("")
 
     def _target_value(self, key: str) -> Decimal | None:
         targets = self.services.settings.get_json("daily_targets") or {}
@@ -490,8 +579,7 @@ class DiaryView(CsvDropMixin, QWidget):
         if not confirmed:
             return
         self._undo_entry = self.services.diary.delete_entry(entry_id)
-        self.undo_button.setVisible(True)
-        self._undo_timer.start()
+        self._show_undo(self._undo_entry.meal)
         self.refresh()
         self.notify("Entry deleted. Use Undo to restore it.", 5000)
 
@@ -500,11 +588,33 @@ class DiaryView(CsvDropMixin, QWidget):
             return
         self.services.diary.restore_entry(self._undo_entry)
         self._undo_entry = None
-        self._undo_timer.stop()
-        self.undo_button.setVisible(False)
+        self._hide_undo()
         self.refresh()
         self.notify("Deleted entry restored.")
 
     def _expire_undo(self) -> None:
         self._undo_entry = None
+        self._hide_undo()
+
+    def _show_undo(self, meal: str) -> None:
+        """Put the undo button beside the meal's "Add food" button and start the winding-down line."""
+        for row in self.meal_add_rows.values():
+            row.removeWidget(self.undo_button)
+        self.meal_add_rows[meal].insertWidget(1, self.undo_button)
+        self.undo_button.set_countdown(1.0)
+        self.undo_button.setVisible(True)
+        self._undo_clock.start()
+        self._undo_timer.start()
+        self._undo_tick.start()
+
+    def _hide_undo(self) -> None:
+        self._undo_timer.stop()
+        self._undo_tick.stop()
+        self.undo_button.set_countdown(0.0)
         self.undo_button.setVisible(False)
+
+    def _update_undo_line(self) -> None:
+        remaining = 1.0 - self._undo_clock.elapsed() / UNDO_MS
+        self.undo_button.set_countdown(remaining)
+        if remaining <= 0:
+            self._undo_tick.stop()

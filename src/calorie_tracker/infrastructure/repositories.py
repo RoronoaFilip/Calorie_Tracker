@@ -43,6 +43,13 @@ class FoodRepository:
     def __init__(self, database: Database):
         self.database = database
 
+    def restore(self, food_id: str) -> None:
+        with self.database.transaction() as connection:
+            connection.execute(
+                "UPDATE catalogue_items SET archived=0, updated_at=CURRENT_TIMESTAMP WHERE id=? AND kind='food'",
+                (food_id,),
+            )
+
     def recipes_using(self, food_id: str) -> tuple[str, ...]:
         """Names of the recipes that have this food as an ingredient."""
         with self.database.read_connection() as connection:
@@ -160,6 +167,26 @@ class RecipeRecord:
     active: bool
 
 
+@dataclass(frozen=True)
+class ArchivedIngredient:
+    """An ingredient as it was when the recipe was archived (the food may have changed since)."""
+
+    food_id: str
+    food_name: str
+    basis: str
+    amount_g: Decimal
+
+
+@dataclass(frozen=True)
+class ArchivedRecipe:
+    id: str
+    name: str
+    yield_g: Decimal
+    per_100g: Nutrients
+    ingredients: tuple[ArchivedIngredient, ...]
+    diary_entry_ids: tuple[str, ...]
+
+
 class RecipeRepository:
     def __init__(self, database: Database, foods: FoodRepository):
         self.database = database
@@ -178,33 +205,37 @@ class RecipeRepository:
         if preview.errors:
             raise ValueError("Cannot persist a recipe with validation errors.")
         with self.database.transaction() as connection:
-            existing = connection.execute("SELECT kind FROM catalogue_items WHERE id=?", (recipe_id,)).fetchone()
-            if existing is not None and existing["kind"] != "recipe":
-                raise ValueError("The requested catalogue ID belongs to a basic food.")
-            for ingredient in draft.ingredients:
-                ingredient_row = connection.execute(
-                    "SELECT kind, archived FROM catalogue_items WHERE id=?",
-                    (ingredient.food.id,),
-                ).fetchone()
-                if ingredient_row is None or ingredient_row["kind"] != "food" or ingredient_row["archived"]:
-                    raise ValueError(f"Ingredient is missing, archived, or is not a basic food: {ingredient.food.name}")
-            connection.execute(
-                """INSERT INTO catalogue_items
-                   (id, name, normalized_name, kind, archived, nutrients_json, recipe_yield_g)
-                   VALUES (?, ?, ?, 'recipe', 0, ?, ?)
-                   ON CONFLICT(id) DO UPDATE SET name=excluded.name,
-                     normalized_name=excluded.normalized_name, archived=0,
-                     nutrients_json=excluded.nutrients_json, recipe_yield_g=excluded.recipe_yield_g,
-                     updated_at=CURRENT_TIMESTAMP""",
-                (recipe_id, draft.name.strip(), draft.name.strip().casefold(),
-                 _nutrients_to_json(preview.per_100g), str(draft.yield_g)),
-            )
-            connection.execute("DELETE FROM recipe_ingredients WHERE recipe_id=?", (recipe_id,))
-            connection.executemany(
-                "INSERT INTO recipe_ingredients(recipe_id, position, food_id, amount_g) VALUES (?, ?, ?, ?)",
-                ((recipe_id, index, ingredient.food.id, str(ingredient.amount_g))
-                 for index, ingredient in enumerate(draft.ingredients)),
-            )
+            self._save_in(connection, recipe_id, draft, preview)
+
+    @staticmethod
+    def _save_in(connection: sqlite3.Connection, recipe_id: str, draft: RecipeDraft, preview: RecipePreview) -> None:
+        existing = connection.execute("SELECT kind FROM catalogue_items WHERE id=?", (recipe_id,)).fetchone()
+        if existing is not None and existing["kind"] != "recipe":
+            raise ValueError("The requested catalogue ID belongs to a basic food.")
+        for ingredient in draft.ingredients:
+            ingredient_row = connection.execute(
+                "SELECT kind, archived FROM catalogue_items WHERE id=?",
+                (ingredient.food.id,),
+            ).fetchone()
+            if ingredient_row is None or ingredient_row["kind"] != "food" or ingredient_row["archived"]:
+                raise ValueError(f"Ingredient is missing, archived, or is not a basic food: {ingredient.food.name}")
+        connection.execute(
+            """INSERT INTO catalogue_items
+               (id, name, normalized_name, kind, archived, nutrients_json, recipe_yield_g)
+               VALUES (?, ?, ?, 'recipe', 0, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET name=excluded.name,
+                 normalized_name=excluded.normalized_name, archived=0,
+                 nutrients_json=excluded.nutrients_json, recipe_yield_g=excluded.recipe_yield_g,
+                 updated_at=CURRENT_TIMESTAMP""",
+            (recipe_id, draft.name.strip(), draft.name.strip().casefold(),
+             _nutrients_to_json(preview.per_100g), str(draft.yield_g)),
+        )
+        connection.execute("DELETE FROM recipe_ingredients WHERE recipe_id=?", (recipe_id,))
+        connection.executemany(
+            "INSERT INTO recipe_ingredients(recipe_id, position, food_id, amount_g) VALUES (?, ?, ?, ?)",
+            ((recipe_id, index, ingredient.food.id, str(ingredient.amount_g))
+             for index, ingredient in enumerate(draft.ingredients)),
+        )
 
     def get(self, recipe_id: str) -> RecipeRecord | None:
         with self.database.read_connection() as connection:
@@ -233,21 +264,94 @@ class RecipeRepository:
         )
 
     def search(self, query: str = "", include_archived: bool = False) -> tuple[RecipeRecord, ...]:
+        """Recipes in the catalogue. Archived recipes live in their own table (see ``get_archived``)."""
         pattern = f"%{query.strip().casefold()}%"
         with self.database.read_connection() as connection:
             rows = connection.execute(
-                """SELECT id FROM catalogue_items WHERE kind='recipe' AND (? OR archived=0)
+                """SELECT id FROM catalogue_items WHERE kind='recipe' AND archived=0
                    AND normalized_name LIKE ? ORDER BY normalized_name, id""",
-                (int(include_archived), pattern),
+                (pattern,),
             ).fetchall()
         return tuple(record for row in rows if (record := self.get(row["id"])) is not None)
 
     def archive(self, recipe_id: str) -> None:
+        """Move a recipe out of the catalogue into the archive tables.
+
+        The foods it used are no longer held by it, so they can be changed (e.g. from per 100 g to per item).
+        Diary entries keep their own snapshot; the ids of the entries that pointed at the recipe are remembered
+        so a restore can link them again.
+        """
         with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT id, name, normalized_name, recipe_yield_g, nutrients_json FROM catalogue_items "
+                "WHERE id=? AND kind='recipe'", (recipe_id,),
+            ).fetchone()
+            if row is None:
+                return
+            diary_ids = [
+                entry["id"] for entry in
+                connection.execute("SELECT id FROM diary_entries WHERE catalogue_item_id=?", (recipe_id,))
+            ]
+            connection.execute("DELETE FROM archived_recipes WHERE id=?", (recipe_id,))
             connection.execute(
-                "UPDATE catalogue_items SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE id=? AND kind='recipe'",
+                """INSERT INTO archived_recipes
+                   (id, name, normalized_name, recipe_yield_g, nutrients_json, diary_entry_ids)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (row["id"], row["name"], row["normalized_name"], row["recipe_yield_g"] or "0",
+                 row["nutrients_json"], ",".join(diary_ids)),
+            )
+            connection.execute(
+                """INSERT INTO archived_recipe_ingredients (recipe_id, position, food_id, food_name, basis, amount_g)
+                   SELECT ri.recipe_id, ri.position, ri.food_id, f.name, f.basis, ri.amount_g
+                   FROM recipe_ingredients ri JOIN catalogue_items f ON f.id=ri.food_id
+                   WHERE ri.recipe_id=?""",
                 (recipe_id,),
             )
+            connection.execute("DELETE FROM recipe_ingredients WHERE recipe_id=?", (recipe_id,))
+            connection.execute("DELETE FROM recent_foods WHERE catalogue_item_id=?", (recipe_id,))
+            connection.execute("UPDATE diary_entries SET catalogue_item_id=NULL WHERE catalogue_item_id=?", (recipe_id,))
+            connection.execute("DELETE FROM catalogue_items WHERE id=?", (recipe_id,))
+
+    def get_archived(self, recipe_id: str) -> ArchivedRecipe | None:
+        with self.database.read_connection() as connection:
+            row = connection.execute(
+                "SELECT id, name, recipe_yield_g, nutrients_json, diary_entry_ids FROM archived_recipes WHERE id=?",
+                (recipe_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            ingredient_rows = connection.execute(
+                """SELECT food_id, food_name, basis, amount_g FROM archived_recipe_ingredients
+                   WHERE recipe_id=? ORDER BY position""",
+                (recipe_id,),
+            ).fetchall()
+        return ArchivedRecipe(
+            row["id"], row["name"], Decimal(row["recipe_yield_g"]), _nutrients_from_json(row["nutrients_json"]),
+            tuple(
+                ArchivedIngredient(item["food_id"], item["food_name"], item["basis"], Decimal(item["amount_g"]))
+                for item in ingredient_rows
+            ),
+            tuple(value for value in row["diary_entry_ids"].split(",") if value),
+        )
+
+    def restore(self, recipe_id: str, draft: RecipeDraft, preview: RecipePreview) -> None:
+        """Put an archived recipe back in the catalogue (with the given, checked draft) and leave the archive."""
+        if preview.errors:
+            raise ValueError("Cannot persist a recipe with validation errors.")
+        with self.database.transaction() as connection:
+            archived = connection.execute(
+                "SELECT diary_entry_ids FROM archived_recipes WHERE id=?", (recipe_id,)
+            ).fetchone()
+            if archived is None:
+                raise KeyError(f"Archived recipe not found: {recipe_id}")
+            self._save_in(connection, recipe_id, draft, preview)
+            for entry_id in (value for value in archived["diary_entry_ids"].split(",") if value):
+                connection.execute(
+                    "UPDATE diary_entries SET catalogue_item_id=? WHERE id=? AND catalogue_item_id IS NULL",
+                    (recipe_id, entry_id),
+                )
+            connection.execute("DELETE FROM archived_recipe_ingredients WHERE recipe_id=?", (recipe_id,))
+            connection.execute("DELETE FROM archived_recipes WHERE id=?", (recipe_id,))
 
 
 class DiaryRepository:

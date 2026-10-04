@@ -607,7 +607,7 @@ class PresentationTests(unittest.TestCase):
         self.services.foods.archive("oats")
         self.assertFalse(self.services.foods.get("oats").active)
 
-        safety_copy = self.window.settings_view.restore_backup(str(backup_path))
+        safety_copy = self.window.data_view.restore_backup(str(backup_path))
 
         self.assertTrue(safety_copy.is_file())
         self.assertTrue(self.services.foods.get("oats").active)
@@ -798,13 +798,13 @@ class PresentationTests(unittest.TestCase):
             )
             self.assertGreater(hits, 0, status)
 
-    def test_settings_offer_fiber_target_data_folder_and_diary_export(self):
-        settings = self.window.settings_view
-        self.assertIn("fiber", settings.target_inputs)
-        self.assertIn(str(Path(self.temp_dir.name)), settings.data_folder_label.text())
+    def test_settings_offer_fiber_target_and_data_page_offers_data_folder_and_diary_export(self):
+        self.assertIn("fiber", self.window.settings_view.target_inputs)
+        data = self.window.data_view
+        self.assertIn(str(Path(self.temp_dir.name)), data.data_folder_label.text())
         self.services.diary.add_item("2026-10-01", "Lunch", "oats", Decimal("100"))
         target = Path(self.temp_dir.name) / "export.csv"
-        self.assertEqual(settings.export_diary(str(target)), 1)
+        self.assertEqual(data.export_diary(str(target)), 1)
         self.assertIn("2026-10-01,Lunch,Oats,100", target.read_text(encoding="utf-8-sig"))
 
     def test_primary_secondary_and_danger_buttons_have_distinct_styles(self):

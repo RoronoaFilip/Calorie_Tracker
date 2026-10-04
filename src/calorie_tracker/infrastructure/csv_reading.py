@@ -77,6 +77,17 @@ def read_csv_rows(path: Path | str) -> CsvTable:
     return CsvTable(rows, delimiter, encoding)
 
 
+def read_csv_text(text: str) -> CsvTable:
+    """Read CSV that was pasted as text (no file), with the same delimiter detection as for files."""
+    text = text.lstrip("\ufeff")
+    delimiter = detect_delimiter(text)
+    try:
+        rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter, strict=True))
+    except csv.Error as error:
+        raise CsvReadError(f"CSV syntax error: {error}") from error
+    return CsvTable(rows, delimiter, "text")
+
+
 def parse_decimal(text: str) -> Decimal:
     """Parse '45', '45.5', '45,5', '1 234,5', '45 g' or '120 kcal'; raises InvalidOperation."""
     value = text.replace("\u00a0", " ").strip()

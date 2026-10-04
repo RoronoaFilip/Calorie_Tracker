@@ -16,7 +16,7 @@ from calorie_tracker.domain.nutrition import ZERO, unit_label
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient, preview_recipe
 from .csv_headers import FIELD_LABELS, RECIPE_FIELD_ALIASES, ColumnMatch, analyze_headers, describe_closest_header
 from .csv_issues import CsvIssue, header_issues
-from .csv_reading import CsvReadError, CsvTable, parse_decimal, read_csv_rows
+from .csv_reading import CsvReadError, CsvTable, parse_decimal, read_csv_rows, read_csv_text
 from .repositories import FoodRepository, RecipeRepository
 
 REQUIRED_FIELDS = ("recipe_name", "ingredient", "amount")
@@ -94,6 +94,13 @@ class CsvRecipeImporter:
             return read_csv_rows(path)
         except (OSError, CsvReadError) as error:
             raise RecipeCsvFormatError(f"Could not read this CSV file: {error}{FORMAT_GUIDANCE}") from error
+
+    def read_text(self, text: str) -> CsvTable:
+        """The same as ``read`` for CSV text that was pasted instead of chosen as a file."""
+        try:
+            return read_csv_text(text)
+        except CsvReadError as error:
+            raise RecipeCsvFormatError(f"Could not read this CSV text: {error}{FORMAT_GUIDANCE}") from error
 
     def preview(self, path: Path | str) -> RecipeCsvPreview:
         return self.preview_table(self.read(path))
