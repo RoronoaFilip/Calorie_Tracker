@@ -192,6 +192,8 @@ class NewFeatureUiTests(unittest.TestCase):
         self.application.processEvents()
         self.assertIs(self.window._stack.currentWidget(), self.window.help_view)
         for title, _entries in SHORTCUT_GROUPS:
+            if title == 'Foods & recipes':
+                title = "Foods &amp; recipes"
             self.assertIn(title, self.window.help_view.shortcuts_label.text())
 
     def test_navigation_has_manage_data_above_settings_and_help_below_it(self):

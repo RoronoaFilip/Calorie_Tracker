@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, e.g. v1.3.4 (must not exist yet)"
+        required: true
+        type: string
+      draft:
+        description: "Create as a draft so you can test the files before publishing"
+        required: true
+        type: boolean
+        default: true
+      prerelease:
+        description: "Mark as pre-release"
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  release-checks:
+    name: Check permission and version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Validate
+        env:
+          VERSION: ${{ inputs.version }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$ACTOR" != "$OWNER" ]; then
+            echo "::error::Only $OWNER may create releases (run by $ACTOR)."
+            exit 1
+          fi
+          if [ "$REF" != "refs/heads/master" ]; then
+            echo "::error::Releases can only be created from master (selected: $REF)."
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Version must look like v1.2.3 or v1.2.3-beta.1 (got: $VERSION)"
+            exit 1
+          fi
+          if gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::error::A release named $VERSION already exists."
+            exit 1
+          fi
+
+  ci:
+    name: CI
+    needs: release-checks
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit # Send Secrets
+
+  release-build:
+    name: Build (${{ matrix.mode }})
+    needs: ci
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        mode: [exe, folder]
+    env:
+      VERSION: ${{ inputs.version }}
+      DAILYPLATE_BUILD_MODE: ${{ matrix.mode }}   # read by exe/DailyPlate.spec
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Create virtual environment
+        shell: pwsh
+        run: |
+          python -m venv .venv
+
+      - name: Install project and PyInstaller
+        shell: pwsh
+        run: |
+          .venv\Scripts\python.exe -m pip install --upgrade pip
+          .venv\Scripts\python.exe -m pip install -e .
+          .venv\Scripts\python.exe -m pip install "pyinstaller>=6.10"
+          .venv\Scripts\python.exe -m PyInstaller --version
+
+      - name: Build
+        shell: pwsh
+        run: |
+          .venv\Scripts\python.exe -m PyInstaller exe\DailyPlate.spec --noconfirm --clean `
+            --distpath exe\dist --workpath exe\build
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path out | Out-Null
+          if ($env:DAILYPLATE_BUILD_MODE -eq "folder") {
+            Compress-Archive -Path exe\dist\DailyPlate `
+              -DestinationPath "out\DailyPlate-$env:VERSION-windows-x64-folder.zip"
+          } else {
+            Copy-Item exe\dist\DailyPlate.exe "out\DailyPlate-$env:VERSION-windows-x64.exe"
+          }
+          Get-ChildItem out | Format-Table Name, Length
+
+      - name: Upload package
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-${{ matrix.mode }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish to GitHub
+    needs: release-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: out
+
+      - name: Checksums
+        working-directory: out
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Release notes
+        run: |
+          cat > notes.md <<'NOTES'
+          Windows 64-bit builds of Daily Plate. No Python install needed.
+
+          - **`...-windows-x64.exe`** - single file; double-click to run. Slightly slower start.
+          - **`...-windows-x64-folder.zip`** - unzip and run `DailyPlate\DailyPlate.exe`; starts faster. Keep the `_internal` folder next to the exe.
+
+          Your data is stored in `%LOCALAPPDATA%\DailyPlate\data` (or in a `data` folder next to the exe, if you create one).
+
+          These builds are not code-signed, so Windows SmartScreen may show "Unknown publisher" - choose *More info -> Run anyway*.
+          Verify downloads against `SHA256SUMS.txt`.
+          NOTES
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          DRAFT: ${{ inputs.draft }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          flags=()
+          [ "$DRAFT" = "true" ] && flags+=(--draft)
+          [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+          gh release create "$VERSION" out/* \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "Daily Plate $VERSION" \
+            --notes-file notes.md \
+            "${flags[@]}"

@@ -45,8 +45,6 @@ SHORTCUT_GROUPS = (
     ("Quick add", (
         ("Type", "Search all foods and recipes in a row; any part of the name matches"),
         ("Enter", "Move from food to amount to the next row (a new row is added after the last)"),
-        ("Ctrl++", "Add a new row (Ctrl+= works too)"),
-        ("Ctrl+Enter", "Review the entries"),
     )),
     ("Foods & recipes", (
         ("Ctrl+F", "Search (the search box is also focused when you open the page)"),

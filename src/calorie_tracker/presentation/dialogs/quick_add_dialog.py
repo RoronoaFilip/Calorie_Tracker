@@ -97,8 +97,6 @@ class QuickAddDialog(QDialog):
 
         self.hint = QLabel(
             "Amounts are grams, or a number of items for foods counted per item (halves are fine). "
-            "Enter moves to the next field and adds a row at the end; Shift+Enter deletes the row; Ctrl++ adds a row; "
-            "Ctrl+Enter reviews. Use Raw input to paste CSV text instead."
         )
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet("color: #536175;")
