@@ -4,7 +4,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from calorie_tracker.domain.nutrition import Nutrients
-from calorie_tracker.domain.recipes import Food
+from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient, preview_recipe
 from calorie_tracker.infrastructure.database import Database
 from calorie_tracker.infrastructure.repositories import DiaryRepository, FoodRepository, RecipeRepository
 from calorie_tracker.application.diary import DiaryEntryInput, DiaryService, MEALS
@@ -37,6 +37,56 @@ class DiaryServiceTests(unittest.TestCase):
         self.assertEqual(totals.total.calories, Decimal("105"))
         self.assertEqual(totals.meals["Breakfast"].protein, Decimal("6"))
         self.assertEqual(totals.meals["Lunch"], Nutrients())
+
+    def test_day_total_sums_all_nutrients_from_saved_snapshots(self):
+        food_a = Food("food-a", "Food A", Nutrients(
+            calories=Decimal("123.4567"), fat=Decimal("8.1234"), saturated_fat=Decimal("2.3456"),
+            carbohydrates=Decimal("24.5678"), sugars=Decimal("9.8765"), protein=Decimal("12.3456"),
+            fiber=Decimal("3.4567"), omega_3=Decimal("1.2345"), omega_6=Decimal("0.9876"),
+        ))
+        food_b = Food("food-b", "Food B", Nutrients(
+            calories=Decimal("210.1234"), fat=Decimal("3.2109"), saturated_fat=Decimal("1.1098"),
+            carbohydrates=Decimal("11.2223"), sugars=Decimal("4.3334"), protein=Decimal("17.4445"),
+            fiber=Decimal("5.5556"), omega_3=Decimal("0.6667"), omega_6=Decimal("1.7778"),
+        ))
+        self.foods.save(food_a)
+        self.foods.save(food_b)
+
+        first = self.service.add_item("2026-09-30", "Breakfast", "food-a", Decimal("100"))
+        second = self.service.add_item("2026-09-30", "Dinner", "food-b", Decimal("50"))
+        totals = self.service.totals_for_day("2026-09-30")
+
+        expected = first.nutrients + second.nutrients
+        self.assertEqual(totals.total, expected)
+        self.assertEqual(totals.meals["Breakfast"], first.nutrients)
+        self.assertEqual(totals.meals["Dinner"], second.nutrients)
+        self.assertEqual(totals.meals["Lunch"], Nutrients())
+        self.assertEqual(totals.meals["Snacks"], Nutrients())
+
+    def test_day_total_ignores_entries_from_other_dates(self):
+        self.service.add_item("2026-09-29", "Breakfast", "food-1", Decimal("100"))
+        entry = self.service.add_item("2026-09-30", "Breakfast", "food-1", Decimal("50"))
+
+        totals = self.service.totals_for_day("2026-09-30")
+
+        self.assertEqual(totals.total, entry.nutrients)
+
+    def test_recipe_entry_and_food_entry_are_both_included_in_day_total(self):
+        self.foods.save(Food("recipe-food", "Recipe Food", Nutrients(
+            calories=Decimal("100"), protein=Decimal("10"), carbohydrates=Decimal("20"), fat=Decimal("5"),
+        )))
+        recipe = RecipeDraft(
+            "Recipe", Decimal("200"),
+            (RecipeIngredient(self.foods.get("recipe-food"), Decimal("100")),),
+        )
+        self.recipes.save("recipe-1", recipe, preview_recipe(recipe))
+        food_entry = self.service.add_item("2026-09-30", "Breakfast", "food-1", Decimal("50"))
+        recipe_entry = self.service.add_item("2026-09-30", "Lunch", "recipe-1", Decimal("100"))
+
+        totals = self.service.totals_for_day("2026-09-30")
+        self.assertEqual(totals.total, food_entry.nutrients + recipe_entry.nutrients)
+        self.assertEqual(totals.total.calories, Decimal("155"))
+        self.assertEqual(totals.total.protein, Decimal("11"))
 
     def test_edit_amount_uses_saved_nutrition_snapshot_after_catalogue_change(self):
         entry = self.service.add_item("2026-09-30", "Lunch", "food-1", Decimal("50"))

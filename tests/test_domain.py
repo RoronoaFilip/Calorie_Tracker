@@ -23,6 +23,26 @@ class NutritionTests(unittest.TestCase):
             ),
         )
 
+    def test_scales_every_nutrient_for_counted_quantity_without_rounding(self):
+        nutrients = Nutrients(
+            calories=Decimal("123.4567"), fat=Decimal("8.1234"), saturated_fat=Decimal("2.3456"),
+            carbohydrates=Decimal("24.5678"), sugars=Decimal("9.8765"), protein=Decimal("12.3456"),
+            fiber=Decimal("3.4567"), omega_3=Decimal("1.2345"), omega_6=Decimal("0.9876"),
+        )
+
+        self.assertEqual(
+            nutrients.for_quantity(Decimal("0.5"), "count"),
+            Nutrients(
+                calories=Decimal("61.72835"), fat=Decimal("4.06170"), saturated_fat=Decimal("1.17280"),
+                carbohydrates=Decimal("12.28390"), sugars=Decimal("4.93825"), protein=Decimal("6.17280"),
+                fiber=Decimal("1.72835"), omega_3=Decimal("0.61725"), omega_6=Decimal("0.49380"),
+            ),
+        )
+
+    def test_rejects_an_unsupported_basis_in_nutrient_scaling(self):
+        with self.assertRaises(ValueError):
+            Nutrients(calories=Decimal("100")).for_quantity(Decimal("50"), "litre")
+
 
 class RecipeValidationTests(unittest.TestCase):
     def test_recipe_preview_uses_ingredient_totals_and_final_yield(self):
@@ -60,6 +80,42 @@ class RecipeValidationTests(unittest.TestCase):
             [error.field for error in preview.errors],
             ["name", "yield_g", "ingredients"],
         )
+
+    def test_all_nutrients_are_calculated_from_ingredients_and_final_yield(self):
+        food_a = Food("a", "A", Nutrients(
+            calories=Decimal("123.4567"), fat=Decimal("8.1234"), saturated_fat=Decimal("2.3456"),
+            carbohydrates=Decimal("24.5678"), sugars=Decimal("9.8765"), protein=Decimal("12.3456"),
+            fiber=Decimal("3.4567"), omega_3=Decimal("1.2345"), omega_6=Decimal("0.9876"),
+        ))
+        food_b = Food("b", "B", Nutrients(
+            calories=Decimal("210.1234"), fat=Decimal("3.2109"), saturated_fat=Decimal("1.1098"),
+            carbohydrates=Decimal("11.2223"), sugars=Decimal("4.3334"), protein=Decimal("17.4445"),
+            fiber=Decimal("5.5556"), omega_3=Decimal("0.6667"), omega_6=Decimal("1.7778"),
+        ))
+        preview = preview_recipe(RecipeDraft(
+            "Precise recipe", Decimal("250"),
+            (RecipeIngredient(food_a, Decimal("100")), RecipeIngredient(food_b, Decimal("50"))),
+        ))
+
+        self.assertEqual(preview.total_nutrients, Nutrients(
+            calories=Decimal("228.5184"), fat=Decimal("9.72885"), saturated_fat=Decimal("2.9005"),
+            carbohydrates=Decimal("30.17895"), sugars=Decimal("12.0432"), protein=Decimal("21.06785"),
+            fiber=Decimal("6.2345"), omega_3=Decimal("1.56785"), omega_6=Decimal("1.8765"),
+        ))
+        self.assertEqual(preview.per_100g, Nutrients(
+            calories=Decimal("91.40736"), fat=Decimal("3.89154"), saturated_fat=Decimal("1.1602"),
+            carbohydrates=Decimal("12.07158"), sugars=Decimal("4.81728"), protein=Decimal("8.42714"),
+            fiber=Decimal("2.4938"), omega_3=Decimal("0.62714"), omega_6=Decimal("0.7506"),
+        ))
+
+    def test_non_finite_recipe_values_are_invalid(self):
+        food = Food("food", "Food", Nutrients(calories=Decimal("100")))
+        for yield_g, amount in ((Decimal("Infinity"), Decimal("10")), (Decimal("100"), Decimal("Infinity"))):
+            with self.subTest(yield_g=yield_g, amount=amount):
+                preview = preview_recipe(RecipeDraft(
+                    "Recipe", yield_g, (RecipeIngredient(food, amount),),
+                ))
+                self.assertFalse(preview.is_valid)
 
     def test_archived_ingredient_is_rejected_and_named_in_the_validation(self):
         archived = Food("old", "Archived food", Nutrients(calories=Decimal("10")), active=False)
