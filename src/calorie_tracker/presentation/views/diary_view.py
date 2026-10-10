@@ -1,12 +1,11 @@
 from datetime import date
 from decimal import Decimal
 
-from PySide6.QtCore import QDate, QElapsedTimer, QTimer, Qt
+from PySide6.QtCore import QDate, QElapsedTimer, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
-    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -31,11 +30,10 @@ from calorie_tracker.presentation.dialogs.add_entry_dialog import AddEntryDialog
 from calorie_tracker.presentation.dialogs.quick_add_dialog import QuickAddDialog
 from calorie_tracker.presentation.formatting import format_entry_amount
 from calorie_tracker.infrastructure.diary_csv_importer import DiaryCsvFormatError
-from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog
 from calorie_tracker.presentation.dialogs.meal_split_dialog import MealSplitDialog
 from calorie_tracker.domain.diary import MealPortion
-from calorie_tracker.presentation.csv_drop import CsvDropMixin
+from calorie_tracker.presentation.import_help import make_help_button
 from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
 
 
@@ -74,12 +72,12 @@ class CountdownButton(QPushButton):
         painter.end()
 
 
-class DiaryView(CsvDropMixin, QWidget):
+class DiaryView(QWidget):
     _sixteen_pixel_font = "font-size: 16px;"
+    import_requested = Signal()  # the main window opens the shared import dialog
 
     def __init__(self, services: ApplicationServices, notify):
         super().__init__()
-        self.init_csv_drop()
         self.services = services
         self.notify = notify
         self.selected_date = date.today().isoformat()
@@ -107,7 +105,7 @@ class DiaryView(CsvDropMixin, QWidget):
         self.date_picker.setDate(QDate.currentDate())
         self.date_picker.setAccessibleName("Selected diary date")
         self.date_picker.setToolTip("Choose the diary date")
-        self.date_picker.lineEdit().setAcceptDrops(False)  # let dropped CSVs reach the page
+        self.date_picker.lineEdit().setAcceptDrops(False)  # let dropped files reach the main window
         self.date_picker.dateChanged.connect(self._date_changed)
         header.addWidget(self.date_picker)
         self.next_button = QPushButton()
@@ -119,11 +117,16 @@ class DiaryView(CsvDropMixin, QWidget):
         today_button.setObjectName("todayButton")
         today_button.clicked.connect(lambda: self.set_date(date.today().isoformat()))
         header.addWidget(today_button)
-        self.import_csv_button = QPushButton("Import CSV")
+        self.import_help_button = make_help_button(self)
+        header.addWidget(self.import_help_button)
+        self.import_csv_button = QPushButton("Import files…")
         self.import_csv_button.setObjectName("importDiaryCsvButton")
-        self.import_csv_button.setAccessibleName("Import diary entries from CSV")
-        self.import_csv_button.setToolTip("Import foods and amounts for this selected day")
-        self.import_csv_button.clicked.connect(self.choose_diary_csv)
+        self.import_csv_button.setAccessibleName("Import diary entries, foods or recipes from files, photos or a zip")
+        self.import_csv_button.setToolTip(
+            "Import CSV files, barcode photos or zip files (Ctrl+O). Diary rows go to the selected day "
+            "unless the file is named diary-YYYY-MM-DD.csv."
+        )
+        self.import_csv_button.clicked.connect(self._request_import)
         header.addWidget(self.import_csv_button)
         self.quick_add_button = QPushButton("Quick add")
         self.quick_add_button.setObjectName("quickAddButton")
@@ -321,31 +324,9 @@ class DiaryView(CsvDropMixin, QWidget):
         self.notify(f"Added {entry.display_name} to {meal}.")
         return entry
 
-    def choose_diary_csv(self) -> None:
-        help_dialog = CsvImportHelpDialog(
-            "Import diary entries from CSV",
-            "Match each row to a food already in your catalogue. Amounts are grams; meal/time is optional and can be assigned or split between meals during review. You can also drop a CSV anywhere on this page.",
-            "food_name, grams_eaten, meal  (column order and common alternative names are fine)",
-            "Oats,45.5,Breakfast",
-            self,
-            raw_header="food_name,amount/count,meal",
-        )
-        if help_dialog.exec() != CsvImportHelpDialog.DialogCode.Accepted:
-            return
-        if help_dialog.pasted_text:
-            self.import_diary_csv_text(help_dialog.pasted_text)
-            return
-        filename = getattr(help_dialog, "dropped_path", None)
-        if not filename:
-            filename, _ = QFileDialog.getOpenFileName(
-                self, "Select diary CSV", "", "CSV files (*.csv);;All files (*)"
-            )
-        if filename:
-            self.import_diary_csv(filename)
-
-    def handle_dropped_csv(self, path: str) -> None:
-        """A .csv dropped on the Diary page goes straight to the review screen."""
-        self.import_diary_csv(path)
+    def _request_import(self) -> None:
+        """Every import button opens the same dialog, owned by the main window."""
+        self.import_requested.emit()
 
     def import_diary_csv_text(self, text: str) -> None:
         """Import diary rows from CSV text that was pasted instead of chosen as a file."""

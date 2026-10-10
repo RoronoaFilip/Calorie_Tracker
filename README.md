@@ -22,12 +22,17 @@ Log what you eat, build your own food and recipe catalogue, and see how each day
 - Starts with a ready-made set of basic foods.
 
 ### Bring your data in
-- **Import a day from CSV.** Drop a spreadsheet export onto the Diary page. Column names are matched flexibly, and the separators `, ; tab |`, decimal commas (`45,5`) and units (`45 g`) are understood. A review table shows how every row was read, with "did you mean" hints for foods it can't find. Nothing is saved until you confirm.
+- **One import for everything.** Every import button (Foods, Diary, Manage your data, or **Ctrl+O**) opens the same dialog. Choose or drop **as many files as you like**: CSV files, barcode photos, and **zip files** holding them. You can also drop files **anywhere in the app**, on any page. Each CSV is recognised by its header row (foods, diary entries or recipes; if it can't tell, it asks), and everything is imported one after another, foods first, each with its own review. Nothing is saved until you confirm. The **?** button beside every import button lists every supported CSV structure.
+- **Import a day from CSV.** Column names are matched flexibly, and the separators `, ; tab |`, decimal commas (`45,5`) and units (`45 g`) are understood. A review table shows how every row was read. Rows go to the day shown on the Diary page, unless the file is named `diary-YYYY-MM-DD.csv`.
+- **Best-guess food names.** A name that isn't in your foods gets ranked suggestions. Only spelling-level matches (capitals, accents, plural, word order, one small typo, such as `eggs` for `Egg`) are pre-selected, flagged "guessed", and you confirm them; anything that could change the nutrition (`skim milk` for `Milk`) is only suggested.
+- **Raw input.** In the import dialog, *Raw input* lets you paste CSV text (starting with its header row). As you type, the text is highlighted to show what will be imported, which header columns are used, and where the problems are.
 - **Import foods from CSV.** Same idea for your catalogue. Existing foods are never overwritten.
-- **Add a food from a barcode photo.** Drop a photo of a product's barcode onto the Foods page (JPEG, PNG, WebP and other common formats). The barcode is read on your computer and the nutrients are looked up on [Open Food Facts](https://world.openfoodfacts.org). The food form opens pre-filled so you can check it, and nothing is added until you press Save. If you're offline, the form still opens blank, with a notice that there's no internet connection.
+- **Companion phone app.** The separate `dailyplate-phone` web app (installable on a phone, no server) captures barcode photos, meals and new foods and bundles them into one zip you send to your computer, for example through Messenger. Drop that zip anywhere in this app. Its files are named `foods.csv`, `diary-YYYY-MM-DD.csv` and `photos/…`, and `tests/test_phone_export.py` proves they import.
+- **Zip files.** Only CSV files and photos are used. Files at the top level plus the files of one folder are all taken; folders inside that folder are ignored; more than one folder is an error.
+- **Add a food from a barcode photo.** Drop a photo of a product's barcode anywhere in the app (JPEG, PNG, WebP and other common formats). The barcode is read on your computer and the nutrients are looked up on [Open Food Facts](https://world.openfoodfacts.org). The food form opens pre-filled so you can check it, and nothing is added until you press Save. If you're offline, the form still opens blank, with a notice that there's no internet connection.
 - **Fix broken CSVs on the spot.** If a column is missing or a value is invalid, a popup shows the whole file as an editable table. Correct the cells (including column names) and resubmit, or skip the bad rows. Your original file is never changed.
 
-- **Export foods and recipes to CSV** from Settings, and **import recipes from CSV** (one row per ingredient, ingredients matched by name, existing recipes never overwritten). Import foods first on a new computer.
+- **Export foods and recipes to CSV** from Settings, and **import recipes from CSV** with the same import button (one row per ingredient, ingredients matched by name, existing recipes never overwritten). Import foods first on a new computer.
 
 ### Look back
 - A **Calendar** of past days: a green tick for days with entries and a red cross for days without, starting from your first logged day. Click a date to open it.
@@ -39,7 +44,7 @@ Log what you eat, build your own food and recipe catalogue, and see how each day
 
 ## Tips
 
-- You can drag a CSV or photo almost anywhere on the Foods page, and a CSV anywhere on the Diary page.
+- You can drag CSV files, photos or zip files onto any page of the app, several at once.
 - **Esc** (or **Ctrl+W**) closes any pop-up window; **Enter** saves a food/recipe or adds the chosen item.
 - **Ctrl+F** (Cmd+F on macOS) focuses the search on Foods & recipes, which is also focused when you open it. Ctrl+N adds a food, Ctrl+Shift+N a recipe.
 - **Ctrl+1…6** switch pages. On the Diary: **Alt+←/→** change day, **Ctrl+T** today, **Alt+1…4** add to a meal, **Ctrl+Shift+A** quick add.

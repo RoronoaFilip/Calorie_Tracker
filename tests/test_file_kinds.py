@@ -1,11 +1,12 @@
 import io
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from PIL import Image
 
-from calorie_tracker.infrastructure.file_kinds import CSV, IMAGE, UNSUPPORTED, classify_file
+from calorie_tracker.infrastructure.file_kinds import CSV, IMAGE, UNSUPPORTED, ZIP, classify_file
 
 
 class ClassifyFileTests(unittest.TestCase):
@@ -49,6 +50,20 @@ class ClassifyFileTests(unittest.TestCase):
         empty = self.directory / "empty.jpeg"
         empty.write_bytes(b"")
         self.assertEqual(classify_file(empty), IMAGE)
+
+
+    def test_zip_is_recognised_by_content_and_by_name(self):
+        real = self.directory / "bundle.dat"
+        with zipfile.ZipFile(real, "w") as archive:
+            archive.writestr("a.csv", "x")
+        self.assertEqual(classify_file(real), ZIP)
+        empty = self.directory / "empty.zip"
+        with zipfile.ZipFile(empty, "w"):
+            pass
+        self.assertEqual(classify_file(empty), ZIP)
+        named_only = self.directory / "broken.zip"
+        named_only.write_bytes(b"nope")
+        self.assertEqual(classify_file(named_only), ZIP)
 
 
 if __name__ == "__main__":

@@ -32,8 +32,8 @@ from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
 from calorie_tracker.presentation.dialogs.diary_csv_import_dialog import DiaryCsvReviewDialog, MealAssignmentDialog
 from calorie_tracker.domain.diary import MealPortion
 from calorie_tracker.presentation.control_styles import CLOSE_DIALOG_SHORTCUT, install_close_shortcut
-from calorie_tracker.presentation.csv_drop import csv_paths
-from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
+from calorie_tracker.presentation.dialogs.import_dialog import ImportDialog
+from calorie_tracker.presentation.import_help import ImportHelpDialog
 from calorie_tracker.presentation.dialogs.food_csv_review_dialog import FoodCsvReviewDialog
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.dialogs.meal_split_dialog import MealSplitDialog
@@ -197,7 +197,7 @@ class PresentationTests(unittest.TestCase):
         preexisting = self.services.diary.add_item("2026-09-30", "Lunch", "oats", Decimal("10"))
         button = diary.findChild(QPushButton, "importDiaryCsvButton")
         self.assertIsNotNone(button)
-        self.assertEqual(button.accessibleName(), "Import diary entries from CSV")
+        self.assertEqual(button.accessibleName(), "Import diary entries, foods or recipes from files, photos or a zip")
 
         preview = self.services.diary_importer.preview(source)
         dialog = DiaryCsvReviewDialog(self.services, diary.selected_date, preview, diary)
@@ -458,34 +458,82 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(field.value(), 0)
         self.assertEqual(dialog.result(), FoodDialog.DialogCode.Accepted)
 
-    def test_both_csv_import_buttons_show_schema_before_opening_file_picker(self):
-        events = []
+    def test_every_import_button_has_a_help_button_that_lists_all_formats(self):
+        pages = (
+            (self.window.foods_view, "importFoodCsvButton"),
+            (self.window.diary_view, "importDiaryCsvButton"),
+            (self.window.data_view, "importRecipesCsvButton"),
+        )
+        shown = []
 
-        def inspect_schema(dialog):
-            schema = dialog.findChild(QLabel, "csvImportSchema")
-            example = dialog.findChild(QLabel, "csvImportExample")
-            self.assertIsNotNone(schema)
-            self.assertIsNotNone(example)
-            self.assertIn("food_name", schema.text())
-            self.assertIn("Oats", example.text())
-            events.append(("schema", schema.text()))
+        def show_help(dialog):
+            shown.append(dialog.browser.toPlainText())
             return QDialog.DialogCode.Accepted
 
-        def choose_file(*_args):
-            events.append(("picker", ""))
-            return "", ""
+        with patch.object(ImportHelpDialog, "exec", new=show_help):
+            for view, button_name in pages:
+                with self.subTest(page=type(view).__name__):
+                    self.assertIsNotNone(view.findChild(QPushButton, button_name))
+                    help_button = view.findChild(QPushButton, "importHelpButton")
+                    self.assertIsNotNone(help_button)
+                    self.assertEqual(help_button.text(), "?")
+                    help_button.click()
+        self.assertEqual(len(shown), 3)
+        for text in shown:
+            for header in ("food_name,basis,calories", "food_name,grams_eaten,meal", "recipe_name,yield_g,ingredient,amount"):
+                self.assertIn(header, text)
+            self.assertIn("more than one folder", text)
 
-        with patch("PySide6.QtWidgets.QDialog.exec", new=inspect_schema), patch(
-            "calorie_tracker.presentation.views.foods_view.QFileDialog.getOpenFileName",
-            side_effect=choose_file,
-        ), patch(
-            "calorie_tracker.presentation.views.diary_view.QFileDialog.getOpenFileName",
-            side_effect=choose_file,
-        ):
-            self.window.foods_view._choose_import()
-            self.window.diary_view.choose_diary_csv()
+    def test_the_raw_input_box_starts_empty_and_the_import_dialog_has_its_own_help_button(self):
+        dialog = ImportDialog(self.window._paste_importers(), self.window)
+        self.addCleanup(dialog.close)
+        self.assertEqual(dialog.raw_input.toPlainText(), "")
+        self.assertIsNotNone(dialog.findChild(QPushButton, "importHelpButton"))
+        self.assertFalse(dialog.use_text_button.isEnabled())
+        dialog.raw_input.setPlainText("food_name,grams_eaten,meal\nOats,45,Breakfast\n")
+        self.assertTrue(dialog.use_text_button.isEnabled())
 
-        self.assertEqual([event[0] for event in events], ["schema", "picker", "schema", "picker"])
+    def test_pasted_text_is_routed_by_its_header(self):
+        with patch.object(type(self.window.diary_view), "import_diary_csv_text") as diary, \
+                patch.object(type(self.window.foods_view), "import_csv_text") as foods, \
+                patch.object(type(self.window.data_view), "import_recipes_text") as recipes:
+            self.window.run_intake_text("food_name,grams_eaten,meal\nOats,45,Breakfast\n")
+            self.window.run_intake_text("food_name,basis,calories,fat,carbohydrates,protein\nRice,g,130,0.3,28,2.7\n")
+            self.window.run_intake_text("recipe_name,yield_g,ingredient,amount\nPorridge,350,Oats,100\n")
+        diary.assert_called_once()
+        foods.assert_called_once()
+        recipes.assert_called_once()
+
+    def test_pasted_text_without_a_header_asks_what_it_is(self):
+        with patch("calorie_tracker.presentation.main_window.QInputDialog.getItem", return_value=("Diary entries", True)) as ask, \
+                patch.object(type(self.window.diary_view), "import_diary_csv_text") as diary:
+            self.window.run_intake_text("Oats,45,Breakfast\n")
+        ask.assert_called_once()
+        diary.assert_called_once()
+        with patch("calorie_tracker.presentation.main_window.QInputDialog.getItem", return_value=("Skip it", True)), \
+                patch.object(type(self.window.diary_view), "import_diary_csv_text") as diary:
+            self.window.run_intake_text("Oats,45,Breakfast\n")
+        diary.assert_not_called()
+
+    def test_a_zip_is_imported_foods_then_photos_then_diary_with_the_date_from_its_name(self):
+        import zipfile
+        bundle = Path(self.temp_dir.name) / "export.zip"
+        with zipfile.ZipFile(bundle, "w") as archive:
+            archive.writestr("diary-2026-10-05.csv", "food_name,grams_eaten,meal\nOats,45,Breakfast\n")
+            archive.writestr("foods.csv", "food_name,basis,calories,fat,carbohydrates,protein\nRice,g,130,0.3,28,2.7\n")
+        order = []
+        with patch.object(type(self.window.foods_view), "import_csv", lambda view, path: order.append("foods")), \
+                patch.object(type(self.window.diary_view), "import_diary_csv", lambda view, path: order.append("diary")):
+            self.window.run_intake([str(bundle)])
+        self.assertEqual(order, ["foods", "diary"])
+        self.assertEqual(self.window.diary_view.selected_date, "2026-10-05")
+
+    def test_a_second_import_while_one_is_running_is_ignored(self):
+        self.window._intake_running = True
+        with patch("calorie_tracker.presentation.main_window.build_intake_plan") as plan:
+            self.window.run_intake(["/tmp/a.csv"])
+        plan.assert_not_called()
+        self.window._intake_running = False
 
     def test_food_csv_bad_value_is_fixed_in_the_repair_popup_and_imported_without_overwriting(self):
         source = Path(self.temp_dir.name) / "correction.csv"
@@ -686,7 +734,9 @@ class PresentationTests(unittest.TestCase):
         preview = self.services.diary_importer.preview(source)
         dialog = DiaryCsvReviewDialog(self.services, "2026-09-30", preview, self.window)
 
-        self.assertIn("Did you mean 'Oats'", dialog.table.item(1, 4).text())
+        # "Oat" is a spelling-level match for "Oats": it is pre-selected, but flagged for the person to check
+        self.assertIn("Ready with Oats", dialog.table.item(1, 4).text())
+        self.assertIn("guessed", dialog.table.item(1, 4).text())
         self.assertNotEqual(dialog.table.item(0, 4).background().color(), dialog.table.item(1, 4).background().color())
         dialog.only_problems.setChecked(True)
         self.assertTrue(dialog.table.isRowHidden(0))
@@ -709,24 +759,11 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(dialog.import_button.text(), "Import 1 food and correct 1 row")
         self.assertIn("semicolon", dialog.findChild(QLabel, "csvMappingSummary").text())
 
-    def test_csv_drop_accepts_only_csv_files_and_help_dialog_returns_the_dropped_path(self):
-        from PySide6.QtCore import QMimeData, QUrl
-        mime = QMimeData()
-        mime.setUrls([QUrl.fromLocalFile("/tmp/day.CSV"), QUrl.fromLocalFile("/tmp/photo.png")])
-        self.assertEqual(csv_paths(mime), ["/tmp/day.CSV"])
-        self.assertTrue(self.window.diary_view.acceptDrops())
-        self.assertTrue(self.window.foods_view.acceptDrops())
-
-        help_dialog = CsvImportHelpDialog("t", "d", "food_name", "Oats", self.window)
-        help_dialog.handle_dropped_csv("/tmp/day.csv")
-        self.assertEqual(help_dialog.dropped_path, "/tmp/day.csv")
-        self.assertEqual(help_dialog.result(), QDialog.DialogCode.Accepted)
-
     def test_dropped_csv_opens_the_matching_review_without_a_file_picker(self):
         source = self._write_diary_csv("food_name,grams\nOats,50\n")
         with patch("calorie_tracker.presentation.views.diary_view.DiaryCsvReviewDialog.exec",
                    return_value=QDialog.DialogCode.Rejected) as review:
-            self.window.diary_view.handle_dropped_csv(str(source))
+            self.window.handle_dropped_files([(str(source), "csv")])
         review.assert_called_once()
 
     def test_every_popup_dialog_closes_with_ctrl_w_but_main_window_has_no_shortcut(self):

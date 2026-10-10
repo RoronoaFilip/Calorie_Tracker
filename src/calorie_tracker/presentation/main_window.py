@@ -2,17 +2,34 @@ from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+import tempfile
 from pathlib import Path
 
 from calorie_tracker.bootstrap import ApplicationServices
+from calorie_tracker.infrastructure.csv_kind import CsvKind, classify_csv_text
+from calorie_tracker.infrastructure.file_kinds import CSV, IMAGE, ZIP
+from calorie_tracker.infrastructure.intake import (
+    KIND_DIARY,
+    KIND_FOODS,
+    KIND_IMAGE,
+    KIND_RECIPES,
+    KIND_UNKNOWN_CSV,
+    IntakeItem,
+    build_intake_plan,
+)
+from calorie_tracker.presentation.dialogs.import_dialog import ImportDialog
+from calorie_tracker.presentation.file_drop import FileDropMixin
 from calorie_tracker.presentation.views.foods_view import FoodsView
 from calorie_tracker.presentation.views.diary_view import DiaryView
 from calorie_tracker.presentation.views.calendar_view import CalendarView
@@ -23,7 +40,14 @@ from calorie_tracker.presentation.app_icon import load_app_icon
 from calorie_tracker.presentation.control_styles import install_pointing_cursors
 
 
-class MainWindow(QMainWindow):
+class MainWindow(FileDropMixin, QMainWindow):
+    """The app window. Files (CSV, barcode photos, zip) can be dropped anywhere on its pages.
+
+    Every import button and Ctrl+O open one shared import dialog; both ways end in ``run_intake``, which
+    classifies what was given, orders it, and sends each item to the importer that already has its own review.
+    """
+
+    drop_kinds = frozenset({CSV, IMAGE, ZIP})
     # (page key, icon, tooltip). "database" and "help" are drawn as vector icons; the others are symbols.
     NAV_ITEMS = (
         ("Diary", "◷", "Log food and review today's nutrition"),
@@ -37,6 +61,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self, services: ApplicationServices):
         super().__init__()
+        self.init_file_drop()
+        self._intake_running = False
         install_pointing_cursors(QApplication.instance())
         self.services = services
         self.setWindowTitle("Daily Plate · Calorie Tracker")
@@ -98,6 +124,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self.foods_view)
         self.data_view = DataView(self.services, self.notify)
         self._stack.addWidget(self.data_view)
+        for view in (self.diary_view, self.foods_view, self.data_view):
+            view.import_requested.connect(self.open_import_dialog)
         self.settings_view = SettingsView(self.services, self.notify)
         self._stack.addWidget(self.settings_view)
         self.help_view = HelpView()
@@ -314,6 +342,10 @@ class MainWindow(QMainWindow):
             shortcut.activated.connect(lambda page=label: self._select_view(page))
             self._navigation_shortcuts.append(shortcut)
             self._nav_buttons[label].setToolTip(f"{_tip} (Ctrl+{number})")
+        import_shortcut = QShortcut(QKeySequence("Ctrl+O"), self)
+        import_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        import_shortcut.activated.connect(self.open_import_dialog)
+        self._navigation_shortcuts.append(import_shortcut)
         help_shortcut = QShortcut(QKeySequence("F1"), self)
         help_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
         help_shortcut.activated.connect(lambda: self._select_view("Help"))
@@ -342,3 +374,114 @@ class MainWindow(QMainWindow):
 
     def notify(self, message: str, timeout_ms: int = 3500) -> None:
         self.statusBar().showMessage(message, timeout_ms)
+
+    # ---- importing: one dialog, drop anywhere, files and pasted text ---------------------------------
+
+    def _set_drop_active(self, active: bool) -> None:
+        """Show the dashed drop outline on the page that is showing (the pages style ``dropActive``)."""
+        page = self._stack.currentWidget()
+        if page is None or bool(page.property("dropActive")) == active:
+            return
+        page.setProperty("dropActive", active)
+        page.style().unpolish(page)
+        page.style().polish(page)
+
+    def handle_dropped_files(self, files: list[tuple[str, str]]) -> None:
+        self.run_intake([path for path, _kind in files])
+
+    def _paste_importers(self) -> dict[CsvKind, object]:
+        return {
+            CsvKind.FOODS: self.services.importer,
+            CsvKind.DIARY: self.services.diary_importer,
+            CsvKind.RECIPES: self.services.recipe_importer,
+        }
+
+    def open_import_dialog(self) -> None:
+        """The one import dialog (every import button and Ctrl+O): files, photos, zips or pasted CSV text."""
+        if self._intake_running:
+            self.notify("An import is already in progress.")
+            return
+        dialog = ImportDialog(self._paste_importers(), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dialog.pasted_text:
+            self.run_intake_text(dialog.pasted_text)
+        elif dialog.paths:
+            self.run_intake(dialog.paths)
+
+    def run_intake(self, paths: list[str]) -> None:
+        """Import everything in ``paths`` (CSV files, photos, zips) one item at a time, each with its review."""
+        if self._intake_running:
+            self.notify("An import is already in progress; wait for it to finish.")
+            return
+        self._intake_running = True
+        try:
+            with tempfile.TemporaryDirectory(prefix="dailyplate-import-", ignore_cleanup_errors=True) as folder:
+                plan = build_intake_plan(paths, Path(folder))
+                total = len(plan.items)
+                for number, item in enumerate(plan.items, start=1):
+                    self.notify(f"Importing {number} of {total}: {item.label}", 10_000)
+                    self._import_item(item)
+        finally:
+            self._intake_running = False
+        if plan.problems:
+            QMessageBox.warning(
+                self, "Some files were not imported" if plan.items else "Nothing to import",
+                "\n".join(f"• {problem}" for problem in plan.problems),
+            )
+
+    def run_intake_text(self, text: str) -> None:
+        """Pasted CSV text is one item; its header row decides what it is (the person is asked if unclear)."""
+        if self._intake_running:
+            self.notify("An import is already in progress; wait for it to finish.")
+            return
+        kind = {
+            CsvKind.FOODS: KIND_FOODS, CsvKind.DIARY: KIND_DIARY, CsvKind.RECIPES: KIND_RECIPES,
+        }.get(classify_csv_text(text))
+        self._intake_running = True
+        try:
+            kind = kind or self._ask_csv_kind("the pasted text")
+            if kind is None:
+                return
+            if kind == KIND_FOODS:
+                self._select_view("Foods")
+                self.foods_view.import_csv_text(text)
+            elif kind == KIND_DIARY:
+                self._select_view("Diary")
+                self.diary_view.import_diary_csv_text(text)
+            elif kind == KIND_RECIPES:
+                self._select_view("Data")
+                self.data_view.import_recipes_text(text)
+        finally:
+            self._intake_running = False
+
+    def _ask_csv_kind(self, label: str) -> str | None:
+        choices = {"Foods": KIND_FOODS, "Diary entries": KIND_DIARY, "Recipes": KIND_RECIPES}
+        answer, accepted = QInputDialog.getItem(
+            self, "What is this?",
+            f"The header row of {label} was not recognised. What does it contain?",
+            [*choices, "Skip it"], 0, False,
+        )
+        return choices.get(answer) if accepted else None
+
+    def _import_item(self, item: IntakeItem) -> None:
+        kind = item.kind
+        if kind == KIND_UNKNOWN_CSV:
+            kind = self._ask_csv_kind(f"“{item.label}”")
+            if kind is None:
+                return
+        path = str(item.path)
+        if kind == KIND_FOODS:
+            self._select_view("Foods")
+            self.foods_view.import_csv(path)
+        elif kind == KIND_IMAGE:
+            self._select_view("Foods")
+            self.foods_view.import_photo(path)
+        elif kind == KIND_RECIPES:
+            self._select_view("Data")
+            self.data_view.import_recipes_csv(path)
+        elif kind == KIND_DIARY:
+            self._select_view("Diary")
+            if item.diary_date is not None:
+                self.diary_view.set_date(item.diary_date.isoformat())
+            self.diary_view.import_diary_csv(path)

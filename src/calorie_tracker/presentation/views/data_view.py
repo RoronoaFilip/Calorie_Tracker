@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
@@ -23,12 +23,14 @@ from calorie_tracker.infrastructure.catalogue_csv_exporter import export_foods_c
 from calorie_tracker.infrastructure.diary_csv_exporter import export_diary_csv
 from calorie_tracker.infrastructure.recipe_csv_importer import RecipeCsvFormatError
 from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
-from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
+from calorie_tracker.presentation.import_help import make_help_button
 from calorie_tracker.presentation.dialogs.recipe_csv_review_dialog import RecipeCsvReviewDialog
 
 
 class DataView(QWidget):
     """Manage your data: backups, the data folder, and CSV export/import of the diary, foods and recipes."""
+
+    import_requested = Signal()  # the main window opens the shared import dialog
 
     def __init__(self, services: ApplicationServices, notify):
         super().__init__()
@@ -106,8 +108,8 @@ class DataView(QWidget):
         catalogue_layout.addWidget(catalogue_title)
         catalogue_text = QLabel(
             "Export your catalogue to share it or move it to another computer. Foods go back in with "
-            "“Import CSV or photo” on the Foods page; recipes can be imported here. "
-            "Import foods first, because recipes refer to their ingredients by name."
+            "“Import files…” (on this page, the Foods page or the Diary page); recipes use the same button. "
+            "Foods are imported before recipes, because recipes refer to their ingredients by name."
         )
         catalogue_text.setWordWrap(True)
         catalogue_layout.addWidget(catalogue_text)
@@ -120,11 +122,16 @@ class DataView(QWidget):
         self.export_recipes_button.setObjectName("exportRecipesCsvButton")
         self.export_recipes_button.setToolTip("Save all recipes, one row per ingredient, to a CSV file")
         self.export_recipes_button.clicked.connect(self._choose_recipes_export)
-        self.import_recipes_button = QPushButton("Import recipes from CSV")
+        self.import_recipes_button = QPushButton("Import files…")
         self.import_recipes_button.setObjectName("importRecipesCsvButton")
-        self.import_recipes_button.setToolTip("Add recipes from a CSV file; existing recipes are never overwritten")
-        self.import_recipes_button.clicked.connect(self._choose_recipe_import)
-        for button in (self.export_foods_button, self.export_recipes_button, self.import_recipes_button):
+        self.import_recipes_button.setAccessibleName("Import foods, diary entries or recipes from files, photos or a zip")
+        self.import_recipes_button.setToolTip(
+            "Import CSV files, barcode photos or zip files (Ctrl+O); existing foods and recipes are never overwritten"
+        )
+        self.import_recipes_button.clicked.connect(self._request_import)
+        self.import_help_button = make_help_button(self)
+        for button in (self.export_foods_button, self.export_recipes_button, self.import_recipes_button,
+                       self.import_help_button):
             catalogue_actions.addWidget(button)
         catalogue_actions.addStretch(1)
         catalogue_layout.addLayout(catalogue_actions)
@@ -180,30 +187,9 @@ class DataView(QWidget):
         self.notify(f"Exported {count} recipe{'' if count == 1 else 's'} to {filename}.")
         return count
 
-    def _choose_recipe_import(self) -> None:
-        help_dialog = CsvImportHelpDialog(
-            "Import recipes from CSV",
-            "Import recipes from a CSV with one row per ingredient. Ingredients are matched by name to the "
-            "foods you already have, so import the foods first. Amounts are grams, or a number of items for "
-            "foods counted per item. The final yield is optional when every ingredient is weighed. Recipes "
-            "that already exist are skipped, never overwritten. Use “Export recipes to CSV” to see the format.",
-            "recipe_name, yield_g, ingredient, amount",
-            "Porridge,350,Oats,100",
-            self,
-            raw_header="recipe_name,yield_g,ingredient,amount",
-        )
-        if help_dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        if help_dialog.pasted_text:
-            self.import_recipes_text(help_dialog.pasted_text)
-            return
-        filename = getattr(help_dialog, "dropped_path", None)
-        if not filename:
-            filename, _ = QFileDialog.getOpenFileName(
-                self, "Select recipe CSV", "", "CSV files (*.csv);;All files (*)"
-            )
-        if filename:
-            self.import_recipes_csv(filename)
+    def _request_import(self) -> None:
+        """Every import button opens the same dialog, owned by the main window."""
+        self.import_requested.emit()
 
     def import_recipes_text(self, text: str) -> None:
         """Import recipes from CSV text that was pasted instead of chosen as a file."""

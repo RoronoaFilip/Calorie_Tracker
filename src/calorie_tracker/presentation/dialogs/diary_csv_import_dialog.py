@@ -121,6 +121,10 @@ class DiaryCsvReviewDialog(QDialog):
             if row.is_importable and row.meal is not None
         }
         self.food_choices: dict[int, tuple[str, str, str]] = {}  # CSV row -> (catalogue id, name, basis)
+        # CSV row -> catalogue id of a confident best guess; flagged in the table until the person confirms or changes it
+        self.guessed: dict[int, str] = {}
+        for guess_row in preview.rows:
+            self._apply_guess(guess_row)
         self.imported_entries = ()
         self._buttons: dict[int, QPushButton] = {}
         self._food_buttons: dict[int, QPushButton] = {}
@@ -217,6 +221,24 @@ class DiaryCsvReviewDialog(QDialog):
     def _can_choose_food(self, row: DiaryCsvRow) -> bool:
         return self._food_is_the_problem(row)
 
+    def _apply_guess(self, row: DiaryCsvRow) -> None:
+        """Pre-select the food for a row whose name was not found, but only for a confident spelling-level guess."""
+        if not self._food_is_the_problem(row) or not row.suggestions or not row.suggestions[0].confident:
+            return
+        food = self.services.foods.get(row.suggestions[0].food_id)
+        if food is None:
+            return
+        self.food_choices[row.source_row] = (food.id, food.name, food.basis)
+        self.guessed[row.source_row] = food.id
+        if row.meal is not None:
+            self.portions[row.source_row] = (MealPortion(row.meal, row.amount_g),)
+
+    def _is_guess_active(self, row: DiaryCsvRow) -> bool:
+        """True while the food shown for this row is still the app's guess (not confirmed or changed by the person)."""
+        guess = self.guessed.get(row.source_row)
+        choice = self.food_choices.get(row.source_row)
+        return guess is not None and choice is not None and choice[0] == guess
+
     def _can_choose_meal(self, row: DiaryCsvRow) -> bool:
         return row.is_importable or self._food_is_the_problem(row)
 
@@ -282,7 +304,7 @@ class DiaryCsvReviewDialog(QDialog):
             self.services, "", self, show_amount=False, title="Choose a food",
             heading=f"Which food is “{row.food_name}” (row {row.source_row})?", confirm_text="Use this food",
         )
-        dialog.search_input.setText(row.food_name)
+        dialog.search_input.setText(row.suggestions[0].name if row.suggestions else row.food_name)
         if not dialog.results.count():
             dialog.search_input.clear()  # nothing contains the typed name: show everything instead
         dialog.search_input.selectAll()
@@ -300,6 +322,7 @@ class DiaryCsvReviewDialog(QDialog):
                 return
             choice = (recipe.id, recipe.draft.name, "g")
         self.food_choices[row.source_row] = choice
+        self.guessed.pop(row.source_row, None)  # choosing a food yourself confirms it
         self._refresh_rows()
 
     def assign_unassigned_to_snacks(self) -> None:
@@ -338,6 +361,10 @@ class DiaryCsvReviewDialog(QDialog):
                     meal_button.setText("Change meal…")
                 if choice:
                     status = status.replace("✓ Ready", f"✓ Ready with {choice[1]}", 1)
+                if self._is_guess_active(row):
+                    status += f" · Food guessed from “{row.food_name}”: check it, or use Change food… to confirm."
+                    if color == READY_BG:
+                        color = WARNING_BG
                 fit_button_text(meal_button)
             food_button = self._food_buttons.get(row.source_row)
             if food_button is not None:
@@ -353,7 +380,7 @@ class DiaryCsvReviewDialog(QDialog):
         self._refresh_summary()
 
     def _row_needs_attention(self, row: DiaryCsvRow) -> bool:
-        return not self._is_importable(row) or row.source_row not in self.portions
+        return not self._is_importable(row) or row.source_row not in self.portions or self._is_guess_active(row)
 
     def _apply_filter(self, *_args) -> None:
         only = self.only_problems.isChecked()
@@ -370,6 +397,9 @@ class DiaryCsvReviewDialog(QDialog):
         text = f"{ready} row{'s' if ready != 1 else ''} ready to import; {skipped} row{'s' if skipped != 1 else ''} will be skipped."
         if unassigned:
             text += f" Choose a meal for {unassigned} row{'s' if unassigned != 1 else ''}."
+        guessed = sum(1 for row in importable if self._is_guess_active(row))
+        if guessed:
+            text += f" {guessed} row{'s' if guessed != 1 else ''} use{'s' if guessed == 1 else ''} a guessed food; please check {'it' if guessed == 1 else 'them'}."
         if skipped and any(self._can_choose_food(row) and not self._is_importable(row) for row in self.preview.rows):
             text += " Rows whose food was not found can be fixed with “Choose food…”."
         self.summary_label.setText(text)

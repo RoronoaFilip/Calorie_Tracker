@@ -1,10 +1,10 @@
-import difflib
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from calorie_tracker.domain.diary import MEALS
+from calorie_tracker.domain.food_matching import FoodName, Suggestion, suggest_foods
 from calorie_tracker.infrastructure.csv_headers import (
     DIARY_FIELD_ALIASES,
     ColumnMatch,
@@ -61,6 +61,8 @@ class DiaryCsvRow:
     # problems; the CSV repair screen is shown for these.
     value_problems: tuple[tuple[str, str], ...] = ()
     basis: str = "g"  # of the matched food: the amount is grams ("g") or a number of items ("count")
+    # Ranked best guesses when the name was not found (never assigned here; the review screen decides).
+    suggestions: tuple[Suggestion, ...] = ()
 
     @property
     def is_importable(self) -> bool:
@@ -138,13 +140,12 @@ class CsvDiaryImporter:
         columns = analysis.positions
         foods_by_name: dict[str, list[str]] = {}
         basis_by_id: dict[str, str] = {}
-        display_names: dict[str, str] = {}
+        catalogue: list[FoodName] = []
         for food in self.foods.search(""):
             if food.active:
-                key = _name_key(food.name)
-                foods_by_name.setdefault(key, []).append(food.id)
+                foods_by_name.setdefault(_name_key(food.name), []).append(food.id)
                 basis_by_id[food.id] = food.basis
-                display_names[key] = food.name
+                catalogue.append(FoodName(food.id, food.name))
         parsed: list[DiaryCsvRow] = []
         for index in range(header_index + 1, len(rows)):
             values = rows[index]
@@ -178,11 +179,14 @@ class CsvDiaryImporter:
             key = _name_key(name)
             matches = foods_by_name.get(key, []) if name else []
             food_id = matches[0] if len(matches) == 1 else None
+            suggestions: tuple[Suggestion, ...] = ()
             if name and not matches:
                 message = f"Food '{name}' was not found in the active catalogue."
-                close = difflib.get_close_matches(key, tuple(display_names), n=1, cutoff=0.7)
-                if close:
-                    message += f" Did you mean '{display_names[close[0]]}'?"
+                suggestions = suggest_foods(name, catalogue)
+                if suggestions:
+                    message += f" Did you mean '{suggestions[0].name}'?"
+                    if len(suggestions) > 1:
+                        message += " Other possibilities: " + ", ".join(f"'{item.name}'" for item in suggestions[1:]) + "."
                 errors.append(message)
             elif name and len(matches) > 1:
                 errors.append(f"Food '{name}' has multiple active catalogue matches; resolve the duplicate names first.")
@@ -195,7 +199,7 @@ class CsvDiaryImporter:
 
             parsed.append(DiaryCsvRow(
                 index + 1, name, amount, meal, food_id, "; ".join(errors) if errors else None,
-                tuple(value_problems), basis_by_id.get(food_id, "g") if food_id else "g",
+                tuple(value_problems), basis_by_id.get(food_id, "g") if food_id else "g", suggestions,
             ))
         return DiaryCsvPreview(
             tuple(parsed), analysis.matches, analysis.ignored, header_index + 1, table.delimiter

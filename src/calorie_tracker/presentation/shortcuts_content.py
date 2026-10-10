@@ -8,6 +8,7 @@ from PySide6.QtGui import QKeySequence
 SHORTCUT_GROUPS = (
     ("Everywhere", (
         ("F1", "Open the Help page (this list)"),
+        ("Ctrl+O", "Import files: CSV files, barcode photos or zip files (you can also drop them anywhere)"),
         ("Ctrl+1", "Go to Diary"),
         ("Ctrl+2", "Go to Calendar"),
         ("Ctrl+3", "Go to Foods & recipes"),

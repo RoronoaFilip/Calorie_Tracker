@@ -4,6 +4,7 @@ import logging
 import os
 import tempfile
 import unittest
+import zipfile
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -22,7 +23,7 @@ from calorie_tracker.domain.products import (
 )
 from calorie_tracker.domain.recipes import Food
 from calorie_tracker.infrastructure.csv_reading import CsvTable
-from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
+from calorie_tracker.presentation.dialogs.import_dialog import ImportDialog
 from calorie_tracker.presentation.dialogs.csv_repair_dialog import CsvRepairDialog, column_letter
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.main_window import MainWindow
@@ -193,59 +194,77 @@ class DropRoutingTests(ImportUiTestCase):
         widget.dragEnterEvent(event)
         return event
 
-    def test_foods_page_takes_photos_of_any_format_and_csvs_but_not_other_files(self):
+    def test_window_takes_photos_of_any_format_csvs_and_zips_but_not_other_files(self):
         csv_file = Path(self.temp_dir.name) / "foods.csv"
         csv_file.write_text("food_name\n")
         jpeg = Path(self.temp_dir.name) / "IMG_0042"  # no extension at all
         Image.new("RGB", (8, 8)).save(jpeg, "JPEG")
+        bundle = Path(self.temp_dir.name) / "export.zip"
+        with zipfile.ZipFile(bundle, "w") as archive:
+            archive.writestr("foods.csv", "food_name\n")
         other = Path(self.temp_dir.name) / "notes.txt"
         other.write_text("hi")
-        for path in (self.photo, jpeg, csv_file):
+        for path in (self.photo, jpeg, csv_file, bundle):
             with self.subTest(path=path.name):
-                self.assertTrue(self._drag(self.window.foods_view, path).isAccepted())
-        self.assertFalse(self._drag(self.window.foods_view, other).isAccepted())
+                self.assertTrue(self._drag(self.window, path).isAccepted())
+        self.assertFalse(self._drag(self.window, other).isAccepted())
 
-    def test_diary_page_still_takes_only_csv(self):
+    def test_files_can_be_dropped_on_every_page_not_just_foods_and_diary(self):
         csv_file = Path(self.temp_dir.name) / "day.csv"
         csv_file.write_text("food_name,grams\n")
-        self.assertTrue(self._drag(self.window.diary_view, csv_file).isAccepted())
-        self.assertFalse(self._drag(self.window.diary_view, self.photo).isAccepted())
+        for page, _icon, _tip in MainWindow.NAV_ITEMS:
+            with self.subTest(page=page):
+                self.window._select_view(page)
+                self.assertTrue(self._drag(self.window, csv_file).isAccepted())
 
-    def test_dropped_files_go_to_the_matching_importer(self):
+    def test_foods_and_diary_pages_no_longer_take_drops_themselves(self):
+        self.assertFalse(self.window.foods_view.acceptDrops())
+        self.assertFalse(self.window.diary_view.acceptDrops())
+
+    def test_every_dropped_file_goes_to_the_intake_not_just_the_first(self):
         csv_file = Path(self.temp_dir.name) / "foods.csv"
         csv_file.write_text("food_name\n")
-        view = self.window.foods_view
-        with patch.object(type(view), "import_photo") as photo, patch.object(type(view), "import_csv") as csv_import:
-            view.handle_dropped_file(str(self.photo), "image")
-            view.handle_dropped_file(str(csv_file), "csv")
-        photo.assert_called_once_with(str(self.photo))
-        csv_import.assert_called_once_with(str(csv_file))
+        with patch.object(MainWindow, "run_intake") as intake:
+            self.window.handle_dropped_files([(str(self.photo), "image"), (str(csv_file), "csv")])
+        intake.assert_called_once_with([str(self.photo), str(csv_file)])
 
-    def test_import_dialog_offers_a_photo_and_remembers_what_was_dropped(self):
-        dialog = CsvImportHelpDialog("t", "d", "food_name", "Oats", self.window, allow_photo=True)
+    def test_import_dialog_takes_several_dropped_files_and_remembers_them(self):
+        dialog = ImportDialog(self.window._paste_importers(), self.window)
         self.addCleanup(dialog.close)
-        self.assertIsNotNone(dialog.photo_button)
-        dialog.handle_dropped_image(str(self.photo))
-        self.assertEqual((dialog.dropped_path, dialog.selected_kind), (str(self.photo), "photo"))
+        dialog.handle_dropped_files([(str(self.photo), "image"), ("/tmp/a.csv", "csv"), ("/tmp/b.zip", "zip")])
+        self.assertEqual(dialog.paths, [str(self.photo), "/tmp/a.csv", "/tmp/b.zip"])
         self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
 
-        csv_only = CsvImportHelpDialog("t", "d", "food_name", "Oats", self.window)
-        self.addCleanup(csv_only.close)
-        self.assertIsNone(csv_only.photo_button)
+    def test_choosing_files_in_the_import_dialog_uses_a_multi_file_picker(self):
+        dialog = ImportDialog(self.window._paste_importers(), self.window)
+        self.addCleanup(dialog.close)
+        with patch(
+            "calorie_tracker.presentation.dialogs.import_dialog.QFileDialog.getOpenFileNames",
+            return_value=([str(self.photo), "/tmp/foods.csv"], ""),
+        ) as picker:
+            dialog.choose_button.click()
+        self.assertIn("Select files to import", picker.call_args.args)
+        self.assertEqual(dialog.paths, [str(self.photo), "/tmp/foods.csv"])
+        self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
 
-    def test_choosing_a_photo_in_the_import_dialog_opens_the_photo_picker_then_imports_it(self):
-        def choose_photo(dialog):
-            dialog.selected_kind = "photo"
+    def test_every_import_button_opens_the_same_dialog_and_ctrl_o_too(self):
+        buttons = (
+            self.window.foods_view.import_button, self.window.diary_view.import_csv_button,
+            self.window.data_view.import_recipes_button,
+        )
+        with patch.object(MainWindow, "open_import_dialog") as opened:
+            for button in buttons:
+                button.click()
+        self.assertEqual(opened.call_count, 3)
+
+    def test_the_import_dialog_hands_chosen_files_to_the_intake(self):
+        def choose(dialog):
+            dialog.paths = ["/tmp/a.csv", "/tmp/b.zip"]
             return QDialog.DialogCode.Accepted
 
-        with patch("calorie_tracker.presentation.dialogs.csv_import_help_dialog.CsvImportHelpDialog.exec", new=choose_photo), patch(
-            "calorie_tracker.presentation.views.foods_view.QFileDialog.getOpenFileName",
-            return_value=(str(self.photo), ""),
-        ) as picker, patch.object(type(self.window.foods_view), "import_photo") as import_photo:
-            self.window.foods_view._choose_import()
-
-        self.assertIn("Select barcode photo", picker.call_args.args)
-        import_photo.assert_called_once_with(str(self.photo))
+        with patch.object(ImportDialog, "exec", new=choose), patch.object(MainWindow, "run_intake") as intake:
+            self.window.open_import_dialog()
+        intake.assert_called_once_with(["/tmp/a.csv", "/tmp/b.zip"])
 
 
 class CsvRepairDialogTests(ImportUiTestCase):
@@ -373,7 +392,7 @@ class TextFitTests(ImportUiTestCase):
         repair = CsvRepairDialog(
             table(["food_name", "calories"], ["Rice", "x"]), self.services.importer.issues_for, parent=self.window
         )
-        chooser = CsvImportHelpDialog("t", "d", "s", "e", self.window, allow_photo=True)
+        chooser = ImportDialog(self.window._paste_importers(), self.window)
         for dialog in (food, repair, chooser):
             self.addCleanup(dialog.close)
             self.assert_buttons_fit(dialog)

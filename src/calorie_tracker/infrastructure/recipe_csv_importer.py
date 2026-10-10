@@ -6,12 +6,12 @@ reported and skipped, so an import never overwrites anything.
 
 from __future__ import annotations
 
-import difflib
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from calorie_tracker.domain.food_matching import FoodName, suggest_foods
 from calorie_tracker.domain.nutrition import ZERO, unit_label
 from calorie_tracker.domain.recipes import Food, RecipeDraft, RecipeIngredient, preview_recipe
 from .csv_headers import FIELD_LABELS, RECIPE_FIELD_ALIASES, ColumnMatch, analyze_headers, describe_closest_header
@@ -137,11 +137,11 @@ class CsvRecipeImporter:
             raise
         columns = analysis.positions
         foods_by_name: dict[str, list[Food]] = {}
-        display: dict[str, str] = {}
+        catalogue: list[FoodName] = []
         for food in self.foods.search(""):
             if food.active:
                 foods_by_name.setdefault(_key(food.name), []).append(food)
-                display[_key(food.name)] = food.name
+                catalogue.append(FoodName(food.id, food.name))
         lines: list[_Line] = []
         current = ""
         for index in range(header_index + 1, len(rows)):
@@ -174,9 +174,11 @@ class CsvRecipeImporter:
                     problems.append(("ingredient", f"Several foods are named '{ingredient}'; rename the duplicates first."))
                 else:
                     message = f"Food '{ingredient}' was not found in your foods."
-                    close = difflib.get_close_matches(_key(ingredient), tuple(display), n=1, cutoff=0.7)
-                    if close:
-                        message += f" Did you mean '{display[close[0]]}'?"
+                    suggestions = suggest_foods(ingredient, catalogue)
+                    if suggestions:
+                        message += f" Did you mean '{suggestions[0].name}'?"
+                        if len(suggestions) > 1:
+                            message += " Other possibilities: " + ", ".join(f"'{item.name}'" for item in suggestions[1:]) + "."
                     problems.append(("ingredient", message))
 
             amount: Decimal | None = None

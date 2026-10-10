@@ -1,14 +1,13 @@
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
     QDialog,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -25,17 +24,14 @@ from calorie_tracker.application.catalogue import RecipeValidationError
 from calorie_tracker.domain.nutrition import Nutrients
 from calorie_tracker.infrastructure.catalogue_query import KIND_ALL, KIND_FOOD, KIND_RECIPE, CatalogueRow
 from calorie_tracker.infrastructure.repositories import BasisInUseError, RecipeRecord
-from calorie_tracker.paths import seed_csv_path
 from calorie_tracker.presentation.control_styles import fit_button_text
 from calorie_tracker.application.product_import import FOUND, OFFLINE
-from calorie_tracker.infrastructure.file_kinds import CSV, IMAGE, IMAGE_FILTER
 from calorie_tracker.infrastructure.open_food_facts import ATTRIBUTION
 from calorie_tracker.presentation.csv_repair_flow import preview_with_repair
-from calorie_tracker.presentation.dialogs.csv_import_help_dialog import CsvImportHelpDialog
 from calorie_tracker.presentation.dialogs.food_csv_review_dialog import FoodCsvReviewDialog
 from calorie_tracker.presentation.dialogs.food_dialog import FoodDialog
 from calorie_tracker.presentation.dialogs.recipe_dialog import RecipeDialog
-from calorie_tracker.presentation.file_drop import FileDropMixin
+from calorie_tracker.presentation.import_help import make_help_button
 from calorie_tracker.presentation.formatting import basis_phrase, format_macros
 
 
@@ -45,16 +41,15 @@ OFFLINE_NOTICE = (
 )
 
 
-class FoodsView(FileDropMixin, QWidget):
+class FoodsView(QWidget):
     edit_archive_buttons_font = "font-size: 26px;"
     ROW_HEIGHT = 72  # one catalogue row incl. spacing; used to size pages to the window
     MIN_PAGE_SIZE = 15
     SEARCH_DELAY_MS = 300
-    drop_kinds = frozenset({CSV, IMAGE})  # a CSV imports many foods, a barcode photo imports one
+    import_requested = Signal()  # the main window opens the shared import dialog
 
     def __init__(self, services: ApplicationServices, notify):
         super().__init__()
-        self.init_file_drop()
         self.services = services
         self.notify = notify
         self._selected: tuple[str, str] | None = None
@@ -83,19 +78,21 @@ class FoodsView(FileDropMixin, QWidget):
         self.add_food_button.setObjectName("primaryButton")
         self.create_recipe_button = QPushButton("Create recipe")
         self.create_recipe_button.setObjectName("primaryButton")
-        self.import_button = QPushButton("Import CSV or photo")
+        self.import_button = QPushButton("Import files…")
         self.import_button.setObjectName("importFoodCsvButton")
-        self.import_button.setAccessibleName("Import foods from a CSV file or a barcode photo")
+        self.import_button.setAccessibleName("Import foods, diary entries or recipes from files, photos or a zip")
         self.import_button.setToolTip(
-            "Import foods from a CSV file, or one food from a photo of its barcode. "
-            "You can also drop a CSV or a photo anywhere on this page."
+            "Import CSV files, barcode photos or zip files (Ctrl+O). "
+            "You can also drop them anywhere in the app."
         )
+        self.import_help_button = make_help_button(self)
         self.add_food_button.clicked.connect(self._add_food)
         self.create_recipe_button.clicked.connect(self._create_recipe)
-        self.import_button.clicked.connect(self._choose_import)
+        self.import_button.clicked.connect(self._request_import)
         actions.addWidget(self.add_food_button)
         actions.addWidget(self.create_recipe_button)
         actions.addStretch(1)
+        actions.addWidget(self.import_help_button)
         actions.addWidget(self.import_button)
         layout.addLayout(actions)
 
@@ -456,47 +453,9 @@ class FoodsView(FileDropMixin, QWidget):
         self.refresh()
         self.notify(f"{plan.draft.name} restored.")
 
-    def _choose_import(self) -> None:
-        help_dialog = CsvImportHelpDialog(
-            "Import foods from CSV",
-            "Import many foods from a CSV: columns can appear in any order, with ',' ';' or tab separators. "
-            "Include the food name, calories, protein, fat, and carbohydrates per 100 g. Fiber is optional.\n\n"
-            "Or import one food from a photo of its barcode (JPEG, PNG, WebP…): the barcode is read on this "
-            "computer, then the nutrients are looked up online and shown for you to check before saving. "
-            "You can also drop a CSV or a photo anywhere on the Foods page.",
-            "food_name, calories/100g, protein/100g, fat/100g, carbohydrates/100g, fiber/100g",
-            "Oats,120,6,4,20,8",
-            self,
-            allow_photo=True,
-            raw_header="food_name,calories,protein,fat,carbohydrates,fiber",
-        )
-        if help_dialog.exec() != CsvImportHelpDialog.DialogCode.Accepted:
-            return
-        if help_dialog.pasted_text:
-            self.import_csv_text(help_dialog.pasted_text)
-            return
-        filename = getattr(help_dialog, "dropped_path", None)
-        photo = getattr(help_dialog, "selected_kind", "csv") == "photo"
-        if not filename and photo:
-            filename, _ = QFileDialog.getOpenFileName(self, "Select barcode photo", "", IMAGE_FILTER)
-        elif not filename:
-            filename, _ = QFileDialog.getOpenFileName(
-                self, "Select food CSV", str(seed_csv_path()), "CSV files (*.csv);;All files (*)"
-            )
-        if not filename:
-            return
-        if photo:
-            self.import_photo(filename)
-        else:
-            self.import_csv(filename)
-
-    def handle_dropped_csv(self, path: str) -> None:
-        """A .csv dropped on the Foods page goes straight to the review screen."""
-        self.import_csv(path)
-
-    def handle_dropped_image(self, path: str) -> None:
-        """A photo dropped on the Foods page is read for a barcode and opens the food form to check."""
-        self.import_photo(path)
+    def _request_import(self) -> None:
+        """Every import button opens the same dialog, owned by the main window."""
+        self.import_requested.emit()
 
     def import_photo(self, filename: str | Path) -> None:
         """Photo → barcode (offline) → product lookup (online) → food form. Nothing is saved until Save."""

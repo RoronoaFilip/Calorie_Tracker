@@ -1,4 +1,4 @@
-"""Drag-and-drop support for opening CSV files and photos from the file manager."""
+"""Drag-and-drop support for opening CSV files, photos and zip files from the file manager."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from collections.abc import Collection
 
 from PySide6.QtCore import QMimeData, QTimer, Qt
 
-from calorie_tracker.infrastructure.file_kinds import CSV, IMAGE, classify_file
+from calorie_tracker.infrastructure.file_kinds import CSV, IMAGE, ZIP, classify_file
 
 
 def dropped_files(mime: QMimeData, accepted: Collection[str]) -> list[tuple[str, str]]:
-    """Return ``(path, kind)`` for each local file in a drag whose kind (csv/image) is in ``accepted``."""
+    """Return ``(path, kind)`` for each local file in a drag whose kind (csv/image/zip) is in ``accepted``."""
     if not mime.hasUrls():
         return []
     files = []
@@ -25,10 +25,12 @@ def dropped_files(mime: QMimeData, accepted: Collection[str]) -> list[tuple[str,
 
 
 class FileDropMixin:
-    """Mix in before a QWidget base. Set ``drop_kinds`` to the kinds the widget takes (csv and/or image).
+    """Mix in before a QWidget base. Set ``drop_kinds`` to the kinds the widget takes (csv, image, zip).
 
-    A dropped CSV calls ``handle_dropped_csv(path)`` and a dropped photo ``handle_dropped_image(path)``.
-    The file's content decides which it is, so photos without (or with the wrong) extension still work.
+    Everything dropped at once is passed to ``handle_dropped_files``. By default that handles only the first
+    file: a CSV calls ``handle_dropped_csv(path)``, a photo ``handle_dropped_image(path)`` and a zip
+    ``handle_dropped_zip(path)``. Widgets that take several files override ``handle_dropped_files``.
+    The file's content decides which kind it is, so photos without (or with the wrong) extension still work.
     """
 
     drop_kinds: frozenset[str] = frozenset({CSV})
@@ -69,11 +71,17 @@ class FileDropMixin:
             return
         event.acceptProposedAction()
         # Run after the drag finishes so the file manager is not frozen behind a modal dialog.
-        QTimer.singleShot(0, lambda item=files[0]: self.handle_dropped_file(*item))
+        QTimer.singleShot(0, lambda items=tuple(files): self.handle_dropped_files(list(items)))
+
+    def handle_dropped_files(self, files: list[tuple[str, str]]) -> None:
+        """Called with every accepted ``(path, kind)`` of a drop; the default takes only the first."""
+        self.handle_dropped_file(*files[0])
 
     def handle_dropped_file(self, path: str, kind: str) -> None:
         if kind == IMAGE:
             self.handle_dropped_image(path)
+        elif kind == ZIP:
+            self.handle_dropped_zip(path)
         else:
             self.handle_dropped_csv(path)
 
@@ -81,4 +89,7 @@ class FileDropMixin:
         raise NotImplementedError
 
     def handle_dropped_image(self, path: str) -> None:  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def handle_dropped_zip(self, path: str) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
