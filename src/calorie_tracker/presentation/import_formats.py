@@ -119,6 +119,14 @@ OTHER_FILES: tuple[tuple[str, str], ...] = (
 )
 
 
+# Colours for the help page, so its text is readable on the app's light background in any system theme.
+HELP_DOCUMENT_STYLE = (
+    "body, p, li, td, b { color: #243041; } "
+    "h2 { color: #172538; } h3 { color: #263752; } "
+    "code { color: #172538; background-color: #dfe8f5; font-family: Consolas, 'Courier New', monospace; }"
+)
+
+
 def render_help_html(docs: Sequence[FormatDoc] = FORMAT_DOCS, others: Sequence[tuple[str, str]] = OTHER_FILES) -> str:
     """The import help page as HTML (headers, examples and notes), safe to show in a rich-text widget."""
     from html import escape
@@ -141,4 +149,4 @@ def render_help_html(docs: Sequence[FormatDoc] = FORMAT_DOCS, others: Sequence[t
             parts.append(f"<p><b>Other column names that are understood</b><br>{names}</p>")
     parts.append("<h3 style='color:#263752;'>Other files</h3>")
     parts.append("<ul>" + "".join(f"<li><b>{escape(title)}.</b> {escape(text)}</li>" for title, text in others) + "</ul>")
-    return "".join(parts)
+    return "<div style='color:#243041;'>" + "".join(parts) + "</div>"

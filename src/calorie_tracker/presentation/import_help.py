@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 from calorie_tracker.presentation.control_styles import fit_button_text
-from calorie_tracker.presentation.import_formats import render_help_html
+from calorie_tracker.presentation.import_formats import HELP_DOCUMENT_STYLE, render_help_html
 
 
 class ImportHelpDialog(QDialog):
@@ -20,6 +20,12 @@ class ImportHelpDialog(QDialog):
         self.browser.setObjectName("importHelpText")
         self.browser.setAccessibleName("Supported import formats")
         self.browser.setOpenLinks(False)
+        # Set the colours here too, so the page is readable even when Windows is in dark mode.
+        self.browser.setStyleSheet(
+            "QTextBrowser#importHelpText { background: #f1f5fb; color: #243041; border: 1px solid #c2cede; "
+            "border-radius: 7px; padding: 10px; font-size: 16px; }"
+        )
+        self.browser.document().setDefaultStyleSheet(HELP_DOCUMENT_STYLE)
         self.browser.setHtml(render_help_html())
         layout.addWidget(self.browser, 1)
         actions = QHBoxLayout()

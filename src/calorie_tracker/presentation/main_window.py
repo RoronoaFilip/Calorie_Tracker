@@ -261,9 +261,9 @@ class MainWindow(FileDropMixin, QMainWindow):
             QLabel#csvDropZone { border: 2px dashed #7f93b8; border-radius: 10px; background: #f1f5fb;
                                 color: #3d56a3; font-weight: 600; padding: 12px; }
             QCheckBox, QRadioButton { color: #243041; spacing: 8px; font-size: 16px; }
-            QPlainTextEdit { background: #f1f5fb; color: #243041; border: 1px solid #c2cede; border-radius: 7px;
-                             padding: 7px; font-size: 16px; }
-            QPlainTextEdit:focus { border: 1px solid #536fd1; }
+            QPlainTextEdit, QTextEdit, QTextBrowser { background: #f1f5fb; color: #243041;
+                             border: 1px solid #c2cede; border-radius: 7px; padding: 7px; font-size: 16px; }
+            QPlainTextEdit:focus, QTextEdit:focus, QTextBrowser:focus { border: 1px solid #536fd1; }
             QPushButton#quickAddButton { background: #e6edff; color: #2c46a3; border: 1px solid #6f8be0; font-weight: 600; }
             QPushButton#quickAddButton:hover { background: #d5e1ff; border-color: #4f68c5; }
             QWidget#catalogueRow { background: transparent; }

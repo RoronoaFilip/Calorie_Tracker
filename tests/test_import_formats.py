@@ -11,7 +11,7 @@ from calorie_tracker.infrastructure.diary_csv_importer import CsvDiaryImporter
 from calorie_tracker.infrastructure.importer import CsvFoodImporter
 from calorie_tracker.infrastructure.recipe_csv_importer import CsvRecipeImporter
 from calorie_tracker.infrastructure.repositories import FoodRepository, RecipeRepository
-from calorie_tracker.presentation.import_formats import FORMAT_DOCS, OTHER_FILES
+from calorie_tracker.presentation.import_formats import FORMAT_DOCS, HELP_DOCUMENT_STYLE, OTHER_FILES, render_help_html
 
 
 class DocumentedFormatsTests(unittest.TestCase):
@@ -50,6 +50,12 @@ class DocumentedFormatsTests(unittest.TestCase):
         names = dict(diary.also_accepted)
         self.assertIn("amount", names["grams_eaten"])
         self.assertIn("name", names["food_name"])
+
+    def test_the_help_page_sets_its_own_readable_colours(self):
+        html = render_help_html()
+        self.assertIn("color:#243041", html)  # body text is dark on the light box, whatever the system theme
+        self.assertIn("#243041", HELP_DOCUMENT_STYLE)
+        self.assertIn("background-color: #dfe8f5", HELP_DOCUMENT_STYLE)  # code samples
 
 
 if __name__ == "__main__":
