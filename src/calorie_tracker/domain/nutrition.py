@@ -55,6 +55,9 @@ class Nutrients:
 
     def for_quantity(self, amount: Decimal, basis: str = BASIS_GRAMS) -> "Nutrients":
         """Nutrients for ``amount`` grams (per-100 g values) or ``amount`` items (per-item values)."""
+        check_basis(basis)
+        if not amount.is_finite():
+            raise ValueError("Nutrient quantity must be finite.")
         if basis == BASIS_COUNT:
             return self * amount
         return self.for_amount(amount)
